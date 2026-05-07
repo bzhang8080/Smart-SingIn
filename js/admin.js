@@ -34,11 +34,6 @@ window.onload = () => {
     document.getElementById('loginOverlay').classList.remove('active');
     document.getElementById('adminMain').classList.remove('hidden');
     checkFirebaseInit();
-  } else {
-    // Ensure default password exists
-    if (!localStorage.getItem('admin_pwd')) {
-      localStorage.setItem('admin_pwd', '123456');
-    }
   }
 
   // Load roster if exists
@@ -51,19 +46,39 @@ window.onload = () => {
 };
 
 // --- Login & Settings ---
-window.adminLogin = () => {
+window.adminLogin = async () => {
   const pwd = document.getElementById('adminPassword').value;
-  const savedPwd = localStorage.getItem('admin_pwd');
   const errorMsg = document.getElementById('loginError');
+  const loginBtn = document.getElementById('loginBtn');
 
-  if (pwd === savedPwd) {
-    sessionStorage.setItem('admin_logged', 'true');
-    document.getElementById('loginOverlay').classList.remove('active');
-    document.getElementById('adminMain').classList.remove('hidden');
-    checkFirebaseInit();
-  } else {
-    errorMsg.textContent = '密码错误，请重试';
+  if (!db) {
+    errorMsg.textContent = '未能连接数据库，请检查网络';
     errorMsg.classList.remove('hidden');
+    return;
+  }
+
+  loginBtn.disabled = true;
+  loginBtn.textContent = '验证中...';
+
+  try {
+    const snap = await get(ref(db, 'settings/adminPwd'));
+    const savedPwd = snap.exists() ? snap.val() : '123456';
+
+    if (pwd === savedPwd) {
+      sessionStorage.setItem('admin_logged', 'true');
+      document.getElementById('loginOverlay').classList.remove('active');
+      document.getElementById('adminMain').classList.remove('hidden');
+      checkFirebaseInit();
+    } else {
+      errorMsg.textContent = '密码错误，请重试';
+      errorMsg.classList.remove('hidden');
+    }
+  } catch(e) {
+    errorMsg.textContent = '验证出错: ' + e.message;
+    errorMsg.classList.remove('hidden');
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = '登 录';
   }
 };
 
@@ -72,15 +87,25 @@ window.adminLogout = () => {
   location.reload();
 };
 
-window.changePassword = () => {
+window.changePassword = async () => {
   const newPwd = document.getElementById('newPassword').value;
   if (newPwd.length < 6) {
     showToast('密码长度至少为6位', 'error');
     return;
   }
-  localStorage.setItem('admin_pwd', newPwd);
-  document.getElementById('newPassword').value = '';
-  showToast('密码修改成功', 'success');
+  
+  if (!db) {
+    showToast('数据库未连接', 'error');
+    return;
+  }
+  
+  try {
+    await set(ref(db, 'settings/adminPwd'), newPwd);
+    document.getElementById('newPassword').value = '';
+    showToast('密码修改成功，所有设备已同步', 'success');
+  } catch (e) {
+    showToast('密码修改失败: ' + e.message, 'error');
+  }
 };
 
 // --- Tabs ---
