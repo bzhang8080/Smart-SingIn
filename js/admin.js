@@ -61,7 +61,15 @@ window.adminLogin = async () => {
   }
 
   if (!db) {
-    errorMsg.textContent = '未能连接数据库，请检查网络或配置';
+    if (pwd === '123456') {
+      showToast('数据库未连接，已进入安全模式', 'warn');
+      sessionStorage.setItem('admin_logged', 'true');
+      document.getElementById('loginOverlay').classList.remove('active');
+      document.getElementById('adminMain').classList.remove('hidden');
+      switchTab('settings');
+      return;
+    }
+    errorMsg.textContent = '未能连接数据库。如需进入设置页面，请输入 123456';
     errorMsg.classList.remove('hidden');
     return;
   }
