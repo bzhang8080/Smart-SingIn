@@ -243,10 +243,10 @@ window.handleRosterFile = (input) => {
 };
 
 window.confirmColumnMapping = async () => {
-  const className = document.getElementById('newClassName').value.trim();
+  let className = document.getElementById('newClassName').value.trim();
   if (!className) {
-    showToast('请先输入课堂名称', 'warn');
-    return;
+    // Auto-generate name if user forgot
+    className = '课堂_' + new Date().toLocaleTimeString('zh-CN', {hour12: false});
   }
 
   const idIdx = document.getElementById('colStudentId').value;
