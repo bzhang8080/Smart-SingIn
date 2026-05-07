@@ -40,45 +40,39 @@ window.onload = () => {
 };
 
 // --- Login & Settings ---
+const enterAdmin = (goSettings = false) => {
+  sessionStorage.setItem('admin_logged', 'true');
+  document.getElementById('loginOverlay').classList.remove('active');
+  document.getElementById('adminMain').classList.remove('hidden');
+  if (goSettings) switchTab('settings');
+  else checkFirebaseInit();
+};
+
 window.adminLogin = async () => {
-  const pwd = document.getElementById('adminPassword').value;
+  const pwd = document.getElementById('adminPassword').value.trim();
   const errorMsg = document.getElementById('loginError');
   const loginBtn = document.getElementById('loginBtn');
+  errorMsg.classList.add('hidden');
 
-  // If Firebase is not configured yet (e.g. on a new browser), allow default password to enter settings
-  if (!ConfigManager.hasConfig()) {
-    if (pwd === '123456') {
-      sessionStorage.setItem('admin_logged', 'true');
-      document.getElementById('loginOverlay').classList.remove('active');
-      document.getElementById('adminMain').classList.remove('hidden');
-      checkFirebaseInit(); // Will auto-redirect to settings tab
-      return;
-    } else {
-      errorMsg.textContent = '尚未配置数据库，首次登入请输入默认密码 123456';
-      errorMsg.classList.remove('hidden');
-      return;
-    }
+  // Master password: 123456 ALWAYS works, no matter what
+  if (pwd === '123456') {
+    enterAdmin();
+    showToast('登录成功', 'success');
+    return;
   }
 
-  if (!db) {
-    if (pwd === '123456') {
-      showToast('数据库未连接，已进入安全模式', 'warn');
-      sessionStorage.setItem('admin_logged', 'true');
-      document.getElementById('loginOverlay').classList.remove('active');
-      document.getElementById('adminMain').classList.remove('hidden');
-      switchTab('settings');
-      return;
-    }
-    errorMsg.textContent = '未能连接数据库。如需进入设置页面，请输入 123456';
+  // No Firebase config => only master password works
+  if (!ConfigManager.hasConfig() || !db) {
+    errorMsg.textContent = '数据库未就绪，请使用默认密码 123456 登录';
     errorMsg.classList.remove('hidden');
     return;
   }
 
+  // Normal login: verify against Firebase
   loginBtn.disabled = true;
   loginBtn.textContent = '验证中...';
 
   try {
-    // Add a 5-second timeout in case Firebase hangs due to bad config or offline
     const snap = await Promise.race([
       get(ref(db, 'settings/adminPwd')),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
@@ -86,26 +80,15 @@ window.adminLogin = async () => {
     const savedPwd = snap.exists() ? snap.val() : '123456';
 
     if (pwd === savedPwd) {
-      sessionStorage.setItem('admin_logged', 'true');
-      document.getElementById('loginOverlay').classList.remove('active');
-      document.getElementById('adminMain').classList.remove('hidden');
-      checkFirebaseInit();
+      enterAdmin();
+      showToast('登录成功', 'success');
     } else {
       errorMsg.textContent = '密码错误，请重试';
       errorMsg.classList.remove('hidden');
     }
   } catch(e) {
-    // Escape hatch: if db fails/timeouts, allow '123456' to enter settings
-    if (pwd === '123456') {
-      showToast('数据库连接异常，已进入安全模式', 'warn');
-      sessionStorage.setItem('admin_logged', 'true');
-      document.getElementById('loginOverlay').classList.remove('active');
-      document.getElementById('adminMain').classList.remove('hidden');
-      switchTab('settings');
-    } else {
-      errorMsg.textContent = '网络/数据库异常。如需进入设置，请输入 123456。(' + e.message + ')';
-      errorMsg.classList.remove('hidden');
-    }
+    errorMsg.textContent = '网络异常: ' + e.message;
+    errorMsg.classList.remove('hidden');
   } finally {
     loginBtn.disabled = false;
     loginBtn.textContent = '登 录';
