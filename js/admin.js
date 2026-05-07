@@ -8,6 +8,8 @@ let qrCode = null;
 let rosterData = [];
 let checkinData = {};
 let autoStopTimer = null;
+let savedRosters = {};
+let previewClassId = null;
 
 // --- UI Helpers ---
 const showToast = (msg, type = 'info') => {
@@ -36,12 +38,11 @@ window.onload = () => {
     checkFirebaseInit();
   }
 
-  // Load roster if exists
-  const savedRoster = localStorage.getItem('current_roster');
-  if (savedRoster) {
-    rosterData = JSON.parse(savedRoster);
-    renderRosterPreview();
-    updateStatsDisplay();
+  const isLogged = sessionStorage.getItem('admin_logged');
+  if (isLogged) {
+    document.getElementById('loginOverlay').classList.remove('active');
+    document.getElementById('adminMain').classList.remove('hidden');
+    checkFirebaseInit();
   }
 };
 
@@ -137,6 +138,9 @@ const checkFirebaseInit = () => {
     if (!db) {
        const ok = initFirebase();
        if(!ok) showToast('Firebase 初始化失败，请检查配置', 'error');
+       else listenToRosters();
+    } else {
+       listenToRosters();
     }
   }
   
@@ -238,7 +242,13 @@ window.handleRosterFile = (input) => {
   input.value = ''; // reset
 };
 
-window.confirmColumnMapping = () => {
+window.confirmColumnMapping = async () => {
+  const className = document.getElementById('newClassName').value.trim();
+  if (!className) {
+    showToast('请先输入课堂名称', 'warn');
+    return;
+  }
+
   const idIdx = document.getElementById('colStudentId').value;
   const nameIdx = document.getElementById('colName').value;
 
@@ -247,7 +257,7 @@ window.confirmColumnMapping = () => {
     return;
   }
 
-  rosterData = [];
+  const newRoster = [];
   // Start from row 0 to catch everything, and dynamically ignore the header row
   for (let i = 0; i < tempExcelData.length; i++) {
     const row = tempExcelData[i];
@@ -262,29 +272,115 @@ window.confirmColumnMapping = () => {
     }
     
     if (sid && sname) {
-      rosterData.push({ id: sid, name: sname });
+      newRoster.push({ id: sid, name: sname });
     }
   }
 
-  localStorage.setItem('current_roster', JSON.stringify(rosterData));
   document.getElementById('columnMapper').classList.add('hidden');
   tempExcelData = null;
   
-  showToast(`成功导入 ${rosterData.length} 人名单`, 'success');
-  renderRosterPreview();
-  updateStatsDisplay();
-};
+  if (newRoster.length === 0) {
+    showToast('未能识别到有效数据，请检查列映射', 'error');
+    return;
+  }
 
-window.clearRoster = () => {
-  if (confirm('确定要清空当前名单吗？')) {
-    rosterData = [];
-    localStorage.removeItem('current_roster');
-    renderRosterPreview();
-    updateStatsDisplay();
+  try {
+    const classId = 'cls_' + Date.now();
+    await set(ref(db, `settings/rosters/${classId}`), {
+      name: className,
+      students: newRoster
+    });
+    
+    showToast(`成功导入 [${className}]，共 ${newRoster.length} 人`, 'success');
+    document.getElementById('newClassName').value = '';
+    previewClassId = classId;
+  } catch(e) {
+    showToast('保存名单失败: ' + e.message, 'error');
   }
 };
 
-const renderRosterPreview = () => {
+const listenToRosters = () => {
+  if (!db) return;
+  onValue(ref(db, 'settings/rosters'), (snap) => {
+    savedRosters = snap.exists() ? snap.val() : {};
+    renderSavedClasses();
+    updateSessionRosterSelect();
+    
+    if (previewClassId && savedRosters[previewClassId]) {
+      rosterData = savedRosters[previewClassId].students || [];
+      renderRosterPreview(savedRosters[previewClassId].name);
+    } else {
+      document.getElementById('rosterPreview').classList.add('hidden');
+    }
+  });
+};
+
+const renderSavedClasses = () => {
+  const container = document.getElementById('savedClassesList');
+  const classIds = Object.keys(savedRosters);
+  
+  if (classIds.length === 0) {
+    container.innerHTML = '<div class="feed-empty">暂无课堂名单</div>';
+    return;
+  }
+  
+  container.innerHTML = '';
+  classIds.forEach(id => {
+    const cls = savedRosters[id];
+    const count = cls.students ? cls.students.length : 0;
+    
+    const div = document.createElement('div');
+    div.className = 'feed-item';
+    div.innerHTML = `
+      <div class="feed-item-info">
+        <div class="feed-item-avatar" style="background: var(--success-color);">📖</div>
+        <div>
+          <div style="font-weight: 600;">${cls.name}</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">${count} 名学生</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-sm btn-outline" onclick="previewRoster('${id}')">预览</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteRoster('${id}', '${cls.name}')">删除</button>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+};
+
+const updateSessionRosterSelect = () => {
+  const select = document.getElementById('sessionRosterSelect');
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">请选择名单...</option>';
+  
+  Object.keys(savedRosters).forEach(id => {
+    const opt = new Option(savedRosters[id].name, id);
+    select.add(opt);
+  });
+  
+  if (savedRosters[currentVal]) {
+    select.value = currentVal;
+  }
+};
+
+window.previewRoster = (id) => {
+  previewClassId = id;
+  rosterData = savedRosters[id].students || [];
+  renderRosterPreview(savedRosters[id].name);
+};
+
+window.deleteRoster = async (id, name) => {
+  if (!confirm(`确定要永久删除课堂名单 [${name}] 吗？`)) return;
+  try {
+    await remove(ref(db, `settings/rosters/${id}`));
+    if (previewClassId === id) previewClassId = null;
+    showToast('删除成功', 'success');
+  } catch(e) {
+    showToast('删除失败: ' + e.message, 'error');
+  }
+};
+
+const renderRosterPreview = (className = '') => {
   const container = document.getElementById('rosterPreview');
   const tbody = document.getElementById('rosterBody');
   const summary = document.getElementById('rosterSummary');
@@ -295,7 +391,7 @@ const renderRosterPreview = () => {
   }
 
   container.classList.remove('hidden');
-  summary.textContent = `当前已导入 ${rosterData.length} 人`;
+  summary.textContent = `当前预览: ${className} (${rosterData.length} 人)`;
   
   tbody.innerHTML = '';
   // Show max 100 for preview performance
@@ -328,6 +424,14 @@ window.startSession = async () => {
 
   const sessionName = document.getElementById('sessionName').value.trim() || `签到 - ${new Date().toLocaleDateString()}`;
   const durationMin = parseInt(document.getElementById('sessionDuration').value) || 60;
+  
+  const selectedClassId = document.getElementById('sessionRosterSelect').value;
+  if (!selectedClassId || !savedRosters[selectedClassId]) {
+    showToast('请先在签到管理页面选择一个出勤名单', 'warn');
+    return;
+  }
+  
+  rosterData = savedRosters[selectedClassId].students || [];
 
   try {
     const sessionsRef = ref(db, 'sessions');

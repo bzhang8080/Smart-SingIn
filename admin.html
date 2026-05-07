@@ -87,6 +87,12 @@
               <input type="text" id="sessionName" placeholder="例如：2024级计算机班第一节课" maxlength="50">
             </div>
             <div class="form-group">
+              <label>选择出勤名单 (课堂)</label>
+              <select id="sessionRosterSelect">
+                <option value="">请选择名单...</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label>签到有效期（分钟）</label>
               <input type="number" id="sessionDuration" value="60" min="5" max="480">
             </div>
@@ -161,43 +167,57 @@
 
       <!-- Tab: Roster Management -->
       <section id="tab-roster" class="tab-content">
-        <div class="glass-card">
-          <h3 class="card-title-sm">👥 导入应出勤名单</h3>
-          <p class="hint-text">请上传包含「学号」和「姓名」两列的 Excel 文件（.xlsx / .xls）</p>
+        <div class="section-grid">
+          <!-- Left: Upload New Class -->
+          <div class="glass-card">
+            <h3 class="card-title-sm">👥 导入新课堂名单</h3>
+            <div class="form-group">
+              <label>课堂名称</label>
+              <input type="text" id="newClassName" placeholder="例如：2024级计算机1班" maxlength="30">
+            </div>
+            <p class="hint-text">请上传包含「学号」和「姓名」两列的 Excel 文件</p>
+            
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('rosterFile').click()">
+              <div class="upload-icon">📂</div>
+              <div class="upload-text">点击或拖放 Excel 文件到此处</div>
+              <div class="upload-hint">支持 .xlsx / .xls 格式</div>
+              <input type="file" id="rosterFile" accept=".xlsx,.xls" style="display:none" onchange="handleRosterFile(this)">
+            </div>
+            
+            <div id="columnMapper" class="column-mapper hidden">
+              <h4>请选择对应列</h4>
+              <div class="mapper-row">
+                <label>学号列：</label>
+                <select id="colStudentId"></select>
+              </div>
+              <div class="mapper-row">
+                <label>姓名列：</label>
+                <select id="colName"></select>
+              </div>
+              <button class="btn btn-primary btn-full" onclick="confirmColumnMapping()">确认导入</button>
+            </div>
+          </div>
           
-          <div class="upload-area" id="uploadArea" onclick="document.getElementById('rosterFile').click()">
-            <div class="upload-icon">📂</div>
-            <div class="upload-text">点击或拖放 Excel 文件到此处</div>
-            <div class="upload-hint">支持 .xlsx / .xls 格式</div>
-            <input type="file" id="rosterFile" accept=".xlsx,.xls" style="display:none" onchange="handleRosterFile(this)">
-          </div>
-
-          <div id="rosterPreview" class="roster-preview hidden">
-            <div class="preview-header">
-              <span id="rosterSummary"></span>
-              <button class="btn btn-sm btn-danger" onclick="clearRoster()">清空名单</button>
-            </div>
-            <div class="table-wrap">
-              <table class="data-table" id="rosterTable">
-                <thead>
-                  <tr><th>#</th><th>学号</th><th>姓名</th></tr>
-                </thead>
-                <tbody id="rosterBody"></tbody>
-              </table>
+          <!-- Right: Saved Classes -->
+          <div class="glass-card">
+            <h3 class="card-title-sm">📚 已保存的课堂名单</h3>
+            <div id="savedClassesList" class="checkin-feed">
+              <div class="feed-empty">暂无课堂名单</div>
             </div>
           </div>
+        </div>
 
-          <div id="columnMapper" class="column-mapper hidden">
-            <h4>请选择对应列</h4>
-            <div class="mapper-row">
-              <label>学号列：</label>
-              <select id="colStudentId"></select>
-            </div>
-            <div class="mapper-row">
-              <label>姓名列：</label>
-              <select id="colName"></select>
-            </div>
-            <button class="btn btn-primary" onclick="confirmColumnMapping()">确认导入</button>
+        <div id="rosterPreview" class="roster-preview hidden glass-card">
+          <div class="preview-header">
+            <h3 class="card-title-sm" id="rosterSummary"></h3>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="rosterTable">
+              <thead>
+                <tr><th>#</th><th>学号</th><th>姓名</th></tr>
+              </thead>
+              <tbody id="rosterBody"></tbody>
+            </table>
           </div>
         </div>
       </section>
