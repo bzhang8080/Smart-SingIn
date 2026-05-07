@@ -7,6 +7,7 @@ let qrRefreshInterval = null;
 let qrCode = null;
 let rosterData = [];
 let checkinData = {};
+let autoStopTimer = null;
 
 // --- UI Helpers ---
 const showToast = (msg, type = 'info') => {
@@ -336,6 +337,11 @@ window.startSession = async () => {
     startQrRefreshLoop();
     listenToCheckins();
     
+    // Set auto-stop timer
+    autoStopTimer = setTimeout(() => {
+      window.stopSession(true);
+    }, durationMin * 60 * 1000);
+    
     showToast('签到已开始', 'success');
   } catch (err) {
     console.error(err);
@@ -343,10 +349,12 @@ window.startSession = async () => {
   }
 };
 
-window.stopSession = async () => {
+window.stopSession = async (isAuto = false) => {
   if (!currentSessionId || !db) return;
 
   try {
+    if (autoStopTimer) clearTimeout(autoStopTimer);
+    
     await update(ref(db, `sessions/${currentSessionId}`), {
       active: false,
       endTime: serverTimestamp()
@@ -365,7 +373,11 @@ window.stopSession = async () => {
     document.getElementById('qrPlaceholder').classList.remove('hidden');
     document.getElementById('qrContainer').classList.add('hidden');
     
-    showToast('签到已结束', 'info');
+    if (isAuto === true) {
+      showToast('签到时间到，已自动结束', 'warn');
+    } else {
+      showToast('签到已手动结束', 'info');
+    }
   } catch (err) {
     showToast('结束签到失败: ' + err.message, 'error');
   }
