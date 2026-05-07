@@ -216,13 +216,18 @@ window.confirmColumnMapping = () => {
   }
 
   rosterData = [];
-  // Start from row 1 to skip header
-  for (let i = 1; i < tempExcelData.length; i++) {
+  // Start from row 0 to catch everything, and dynamically ignore the header row
+  for (let i = 0; i < tempExcelData.length; i++) {
     const row = tempExcelData[i];
     if (!row || row.length === 0) continue;
     
     const sid = row[idIdx] ? String(row[idIdx]).trim() : '';
     const sname = row[nameIdx] ? String(row[nameIdx]).trim() : '';
+    
+    // Ignore header row if it is caught in the loop
+    if (sid === '学号' || sname === '姓名' || sname === '名字' || sid === '学号/工号') {
+      continue;
+    }
     
     if (sid && sname) {
       rosterData.push({ id: sid, name: sname });
