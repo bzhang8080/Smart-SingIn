@@ -52,8 +52,23 @@ window.adminLogin = async () => {
   const errorMsg = document.getElementById('loginError');
   const loginBtn = document.getElementById('loginBtn');
 
+  // If Firebase is not configured yet (e.g. on a new browser), allow default password to enter settings
+  if (!ConfigManager.hasConfig()) {
+    if (pwd === '123456') {
+      sessionStorage.setItem('admin_logged', 'true');
+      document.getElementById('loginOverlay').classList.remove('active');
+      document.getElementById('adminMain').classList.remove('hidden');
+      checkFirebaseInit(); // Will auto-redirect to settings tab
+      return;
+    } else {
+      errorMsg.textContent = '尚未配置数据库，首次登入请输入默认密码 123456';
+      errorMsg.classList.remove('hidden');
+      return;
+    }
+  }
+
   if (!db) {
-    errorMsg.textContent = '未能连接数据库，请检查网络';
+    errorMsg.textContent = '未能连接数据库，请检查网络或配置';
     errorMsg.classList.remove('hidden');
     return;
   }
