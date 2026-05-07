@@ -77,7 +77,11 @@ window.adminLogin = async () => {
   loginBtn.textContent = '验证中...';
 
   try {
-    const snap = await get(ref(db, 'settings/adminPwd'));
+    // Add a 5-second timeout in case Firebase hangs due to bad config or offline
+    const snap = await Promise.race([
+      get(ref(db, 'settings/adminPwd')),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]);
     const savedPwd = snap.exists() ? snap.val() : '123456';
 
     if (pwd === savedPwd) {
@@ -90,8 +94,17 @@ window.adminLogin = async () => {
       errorMsg.classList.remove('hidden');
     }
   } catch(e) {
-    errorMsg.textContent = '验证出错: ' + e.message;
-    errorMsg.classList.remove('hidden');
+    // Escape hatch: if db fails/timeouts, allow '123456' to enter settings
+    if (pwd === '123456') {
+      showToast('数据库连接异常，已进入安全模式', 'warn');
+      sessionStorage.setItem('admin_logged', 'true');
+      document.getElementById('loginOverlay').classList.remove('active');
+      document.getElementById('adminMain').classList.remove('hidden');
+      switchTab('settings');
+    } else {
+      errorMsg.textContent = '网络/数据库异常。如需进入设置，请输入 123456。(' + e.message + ')';
+      errorMsg.classList.remove('hidden');
+    }
   } finally {
     loginBtn.disabled = false;
     loginBtn.textContent = '登 录';
