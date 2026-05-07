@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>学生签到 - 智能签到系统</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/firebase-config.js"></script>
+  <script type="module" src="js/checkin.js"></script>
+</head>
+<body class="checkin-page">
+  <!-- Loading State -->
+  <div id="loadingState" class="checkin-screen active">
+    <div class="loading-spinner"></div>
+    <p class="loading-text">正在验证签到码...</p>
+  </div>
+
+  <!-- Error State -->
+  <div id="errorState" class="checkin-screen">
+    <div class="result-icon error-icon">✗</div>
+    <h2 id="errorTitle">签到失败</h2>
+    <p id="errorMsg" class="result-msg"></p>
+    <div class="expired-hint hidden" id="expiredHint">
+      <div class="expired-icon">⏰</div>
+      <p>此二维码已过期</p>
+      <p class="hint-small">请扫描教师屏幕上的最新二维码</p>
+    </div>
+  </div>
+
+  <!-- Form State -->
+  <div id="formState" class="checkin-screen">
+    <div class="checkin-header">
+      <div class="checkin-logo">✓</div>
+      <h1>课堂签到</h1>
+      <div class="session-info" id="sessionInfo"></div>
+    </div>
+
+    <div class="checkin-card">
+      <div class="security-badge">
+        <span class="security-icon">🔒</span>
+        <span>安全验证中</span>
+        <div class="token-timer">
+          <div class="timer-bar" id="timerBar"></div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="studentId">学号</label>
+        <input
+          type="text"
+          id="studentId"
+          class="checkin-input"
+          placeholder="请输入您的学号"
+          maxlength="20"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="studentName">姓名</label>
+        <input
+          type="text"
+          id="studentName"
+          class="checkin-input"
+          placeholder="请输入您的姓名"
+          maxlength="20"
+          autocomplete="off"
+        >
+      </div>
+
+      <button class="btn btn-primary btn-checkin" id="submitBtn" onclick="submitCheckin()">
+        <span class="btn-icon">✓</span>
+        确认签到
+      </button>
+
+      <div id="formError" class="form-error hidden"></div>
+    </div>
+
+    <div class="checkin-footer">
+      <div class="anti-cheat-notice">
+        <p>⚠️ 本系统记录设备信息及 IP 地址</p>
+        <p>代替他人签到将承担相应责任</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success State -->
+  <div id="successState" class="checkin-screen">
+    <div class="success-animation">
+      <div class="success-circle">
+        <div class="result-icon success-icon">✓</div>
+      </div>
+      <div class="success-ripple"></div>
+    </div>
+    <h2>签到成功！</h2>
+    <div class="success-info">
+      <p id="successName" class="success-name"></p>
+      <p id="successTime" class="success-time"></p>
+      <p id="successSession" class="success-session"></p>
+    </div>
+    <div class="success-note">您已成功签到，请关闭此页面</div>
+  </div>
+
+  <!-- Already Checked In State -->
+  <div id="alreadyState" class="checkin-screen">
+    <div class="result-icon warn-icon">!</div>
+    <h2>已签到</h2>
+    <p id="alreadyMsg" class="result-msg"></p>
+    <div class="already-info">
+      <p>您已在此次签到中完成签到</p>
+      <p>如有疑问请联系老师</p>
+    </div>
+  </div>
+</body>
+</html>

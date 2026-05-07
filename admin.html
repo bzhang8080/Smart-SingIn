@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>教师管理端 - 智能签到系统</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- SheetJS for Excel parsing -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- QRCode.js -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <!-- Firebase -->
+  <script type="module" src="js/firebase-config.js"></script>
+  <script type="module" src="js/admin.js"></script>
+</head>
+<body class="admin-page">
+  <!-- Login Overlay -->
+  <div id="loginOverlay" class="overlay active">
+    <div class="login-card glass-card">
+      <div class="login-logo">🏫</div>
+      <h2>教师登录</h2>
+      <p class="login-subtitle">请输入管理密码进入系统</p>
+      <div class="form-group">
+        <label>管理密码</label>
+        <input type="password" id="adminPassword" placeholder="请输入密码" maxlength="20">
+      </div>
+      <button class="btn btn-primary btn-full" id="loginBtn" onclick="adminLogin()">登 录</button>
+      <div id="loginError" class="error-msg hidden"></div>
+      <div class="login-hint">
+        <span>首次使用默认密码：<strong>123456</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Admin Interface -->
+  <div id="adminMain" class="admin-layout hidden">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-logo">
+        <span class="logo-mark">✓</span>
+        <span class="logo-text">签到系统</span>
+      </div>
+      <ul class="nav-menu">
+        <li class="nav-item active" data-tab="session" onclick="switchTab('session')">
+          <span class="nav-icon">📋</span>
+          <span>签到管理</span>
+        </li>
+        <li class="nav-item" data-tab="roster" onclick="switchTab('roster')">
+          <span class="nav-icon">👥</span>
+          <span>名单管理</span>
+        </li>
+        <li class="nav-item" data-tab="stats" onclick="switchTab('stats')">
+          <span class="nav-icon">📊</span>
+          <span>签到统计</span>
+        </li>
+        <li class="nav-item" data-tab="settings" onclick="switchTab('settings')">
+          <span class="nav-icon">⚙️</span>
+          <span>系统设置</span>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <button class="btn-logout" onclick="adminLogout()">退出登录</button>
+      </div>
+    </nav>
+
+    <!-- Content Area -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="content-header">
+        <div class="header-left">
+          <h2 id="pageTitle">签到管理</h2>
+          <div id="sessionStatus" class="status-badge inactive">未开始</div>
+        </div>
+        <div class="header-right">
+          <div class="current-time" id="currentTime"></div>
+        </div>
+      </header>
+
+      <!-- Tab: Session Management -->
+      <section id="tab-session" class="tab-content active">
+        <div class="section-grid">
+          <!-- Create/Control Session -->
+          <div class="glass-card session-control-card">
+            <h3 class="card-title-sm">📋 签到场次</h3>
+            <div class="form-group">
+              <label>场次名称</label>
+              <input type="text" id="sessionName" placeholder="例如：2024级计算机班第一节课" maxlength="50">
+            </div>
+            <div class="form-group">
+              <label>签到有效期（分钟）</label>
+              <input type="number" id="sessionDuration" value="60" min="5" max="480">
+            </div>
+            <div class="session-actions">
+              <button class="btn btn-success" id="startSessionBtn" onclick="startSession()">
+                🚀 开始签到
+              </button>
+              <button class="btn btn-danger hidden" id="stopSessionBtn" onclick="stopSession()">
+                ⛔ 结束签到
+              </button>
+            </div>
+          </div>
+
+          <!-- QR Code Display -->
+          <div class="glass-card qr-card">
+            <h3 class="card-title-sm">📱 动态二维码</h3>
+            <div id="qrPlaceholder" class="qr-placeholder">
+              <div class="qr-placeholder-icon">QR</div>
+              <p>开始签到后生成二维码</p>
+            </div>
+            <div id="qrContainer" class="qr-container hidden">
+              <div id="qrcode"></div>
+              <div class="qr-info">
+                <div class="qr-countdown">
+                  <span class="countdown-label">二维码将在</span>
+                  <span class="countdown-num" id="qrCountdown">30</span>
+                  <span class="countdown-label">秒后刷新</span>
+                </div>
+                <div class="qr-warning">⚠️ 二维码每30秒自动刷新，请勿截图转发</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Stats Strip -->
+        <div class="glass-card stats-strip">
+          <div class="stat-item">
+            <div class="stat-num" id="totalCount">0</div>
+            <div class="stat-label">应到人数</div>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item present">
+            <div class="stat-num" id="presentCount">0</div>
+            <div class="stat-label">已签到</div>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item absent">
+            <div class="stat-num" id="absentCount">0</div>
+            <div class="stat-label">未到</div>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <div class="stat-num" id="rateDisplay">0%</div>
+            <div class="stat-label">出勤率</div>
+          </div>
+        </div>
+
+        <!-- Live Checkin Feed -->
+        <div class="glass-card feed-card">
+          <div class="feed-header">
+            <h3 class="card-title-sm">✅ 实时签到记录</h3>
+            <div class="feed-actions">
+              <button class="btn btn-sm btn-outline" onclick="exportAbsentList()">📥 导出缺勤名单</button>
+              <button class="btn btn-sm btn-outline" onclick="exportAllList()">📥 导出完整名单</button>
+            </div>
+          </div>
+          <div id="checkinFeed" class="checkin-feed">
+            <div class="feed-empty">暂无签到记录</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab: Roster Management -->
+      <section id="tab-roster" class="tab-content">
+        <div class="glass-card">
+          <h3 class="card-title-sm">👥 导入应出勤名单</h3>
+          <p class="hint-text">请上传包含「学号」和「姓名」两列的 Excel 文件（.xlsx / .xls）</p>
+          
+          <div class="upload-area" id="uploadArea" onclick="document.getElementById('rosterFile').click()">
+            <div class="upload-icon">📂</div>
+            <div class="upload-text">点击或拖放 Excel 文件到此处</div>
+            <div class="upload-hint">支持 .xlsx / .xls 格式</div>
+            <input type="file" id="rosterFile" accept=".xlsx,.xls" style="display:none" onchange="handleRosterFile(this)">
+          </div>
+
+          <div id="rosterPreview" class="roster-preview hidden">
+            <div class="preview-header">
+              <span id="rosterSummary"></span>
+              <button class="btn btn-sm btn-danger" onclick="clearRoster()">清空名单</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="rosterTable">
+                <thead>
+                  <tr><th>#</th><th>学号</th><th>姓名</th></tr>
+                </thead>
+                <tbody id="rosterBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="columnMapper" class="column-mapper hidden">
+            <h4>请选择对应列</h4>
+            <div class="mapper-row">
+              <label>学号列：</label>
+              <select id="colStudentId"></select>
+            </div>
+            <div class="mapper-row">
+              <label>姓名列：</label>
+              <select id="colName"></select>
+            </div>
+            <button class="btn btn-primary" onclick="confirmColumnMapping()">确认导入</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab: Statistics -->
+      <section id="tab-stats" class="tab-content">
+        <div class="glass-card">
+          <div class="stats-header">
+            <h3 class="card-title-sm">📊 签到统计报表</h3>
+            <div class="stats-actions">
+              <button class="btn btn-sm btn-outline" onclick="loadHistory()">🔄 刷新数据</button>
+            </div>
+          </div>
+          <div id="historyList" class="history-list">
+            <div class="feed-empty">暂无历史记录</div>
+          </div>
+        </div>
+
+        <!-- Absent List Panel -->
+        <div class="glass-card absent-panel">
+          <div class="absent-header">
+            <h3 class="card-title-sm">🚨 当前缺勤名单</h3>
+            <button class="btn btn-sm btn-danger" onclick="exportAbsentList()">📥 导出Excel</button>
+          </div>
+          <div id="absentList" class="absent-list">
+            <div class="feed-empty">暂无缺勤记录</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab: Settings -->
+      <section id="tab-settings" class="tab-content">
+        <div class="glass-card settings-card">
+          <h3 class="card-title-sm">⚙️ 系统设置</h3>
+
+          <div class="setting-group">
+            <label class="setting-label">管理密码</label>
+            <div class="setting-row">
+              <input type="password" id="newPassword" placeholder="输入新密码">
+              <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">Firebase 配置</label>
+            <p class="hint-text">请填写您自己的 Firebase 项目配置（首次使用必须配置）</p>
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="text" id="fbApiKey" placeholder="AIzaSy...">
+            </div>
+            <div class="form-group">
+              <label>Auth Domain</label>
+              <input type="text" id="fbAuthDomain" placeholder="your-project.firebaseapp.com">
+            </div>
+            <div class="form-group">
+              <label>Database URL</label>
+              <input type="text" id="fbDatabaseUrl" placeholder="https://your-project-default-rtdb.firebaseio.com">
+            </div>
+            <div class="form-group">
+              <label>Project ID</label>
+              <input type="text" id="fbProjectId" placeholder="your-project-id">
+            </div>
+            <button class="btn btn-primary" onclick="saveFirebaseConfig()">保存配置</button>
+            <button class="btn btn-outline" onclick="testFirebaseConnection()">测试连接</button>
+            <div id="fbConfigStatus" class="status-msg hidden"></div>
+          </div>
+        </div>
+
+        <div class="glass-card settings-card">
+          <h3 class="card-title-sm">📖 使用说明</h3>
+          <div class="help-content">
+            <div class="help-step">
+              <span class="step-num">1</span>
+              <div>
+                <strong>配置 Firebase</strong>
+                <p>在「系统设置」中填写 Firebase 配置信息，获取方式见 <a href="https://console.firebase.google.com" target="_blank">Firebase Console</a></p>
+              </div>
+            </div>
+            <div class="help-step">
+              <span class="step-num">2</span>
+              <div>
+                <strong>导入名单</strong>
+                <p>在「名单管理」中上传包含学号、姓名的 Excel 文件</p>
+              </div>
+            </div>
+            <div class="help-step">
+              <span class="step-num">3</span>
+              <div>
+                <strong>开始签到</strong>
+                <p>填写场次名称，点击「开始签到」，生成动态二维码展示给学生</p>
+              </div>
+            </div>
+            <div class="help-step">
+              <span class="step-num">4</span>
+              <div>
+                <strong>防转发机制</strong>
+                <p>二维码每30秒自动更新，旧二维码立即失效；同一学号只能签到一次；系统记录IP和设备信息</p>
+              </div>
+            </div>
+            <div class="help-step">
+              <span class="step-num">5</span>
+              <div>
+                <strong>导出报表</strong>
+                <p>签到结束后可导出缺勤名单（Excel格式）</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast hidden"></div>
+</body>
+</html>
