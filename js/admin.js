@@ -94,6 +94,12 @@ window.switchTab = (tabId) => {
     session: '签到管理', roster: '名单管理', stats: '签到统计', settings: '系统设置'
   };
   document.getElementById('pageTitle').textContent = titles[tabId];
+  
+  if (tabId === 'stats') {
+    if (typeof window.loadHistory === 'function') {
+      window.loadHistory();
+    }
+  }
 };
 
 // --- Firebase Config ---
@@ -512,7 +518,59 @@ const renderAbsentList = () => {
   });
 };
 
-// --- Exports ---
+// --- Exports & History ---
+window.loadHistory = async () => {
+  if (!db) {
+    showToast('请先配置 Firebase', 'warn');
+    return;
+  }
+  
+  const historyList = document.getElementById('historyList');
+  historyList.innerHTML = '<div class="loading-spinner" style="margin: 20px auto;"></div>';
+
+  try {
+    const snap = await get(ref(db, 'sessions'));
+    if (!snap.exists()) {
+      historyList.innerHTML = '<div class="feed-empty">暂无历史记录</div>';
+      return;
+    }
+    
+    const sessions = snap.val();
+    const sortedSessions = Object.keys(sessions)
+      .map(k => ({id: k, ...sessions[k]}))
+      .sort((a,b) => b.startTime - a.startTime);
+    
+    historyList.innerHTML = '';
+    
+    for (const session of sortedSessions) {
+      const dateStr = new Date(session.startTime).toLocaleString('zh-CN');
+      const rosterCount = session.roster ? Object.keys(session.roster).length : 0;
+      
+      const checkinSnap = await get(ref(db, `checkins/${session.id}`));
+      const checkins = checkinSnap.exists() ? Object.keys(checkinSnap.val()).length : 0;
+      
+      const div = document.createElement('div');
+      div.className = 'feed-item';
+      div.innerHTML = `
+        <div class="feed-item-info" style="flex: 1;">
+          <div class="feed-item-avatar" style="background: var(--primary-color);">📅</div>
+          <div>
+            <div style="font-weight: 600;">${session.name} ${session.active ? '<span style="color:#34d399;font-size:0.8rem;">(进行中)</span>' : ''}</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">${dateStr}</div>
+          </div>
+        </div>
+        <div style="text-align: right; margin-right: 15px;">
+          <div style="font-weight: bold; color: ${checkins >= rosterCount && rosterCount > 0 ? '#34d399' : 'white'}">${checkins} / ${rosterCount}</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">签到人数</div>
+        </div>
+      `;
+      historyList.appendChild(div);
+    }
+  } catch (err) {
+    historyList.innerHTML = `<div class="feed-empty" style="color: #fca5a5;">加载失败: ${err.message}</div>`;
+  }
+};
+
 window.exportAbsentList = () => {
   if (rosterData.length === 0) {
     showToast('暂无名单数据', 'error');
