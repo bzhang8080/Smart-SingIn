@@ -1,30 +1,30 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, get, update, onValue, push, child, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// Helper to manage localStorage configuration
+// Hardcoded config for GitHub Pages deployment
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDfjqvSkLg25OFDBQIG8geM_s5oDbhTMtA",
+  authDomain: "smartsignin-c0878.firebaseapp.com",
+  databaseURL: "https://smartsignin-c0878-default-rtdb.firebaseio.com",
+  projectId: "smartsignin-c0878"
+};
+
+// Helper to manage localStorage configuration (kept for backwards compatibility with UI)
 export const ConfigManager = {
-  getConfig: () => {
-    const configStr = localStorage.getItem('firebase_config');
-    return configStr ? JSON.parse(configStr) : null;
-  },
+  getConfig: () => FIREBASE_CONFIG,
   saveConfig: (config) => {
-    localStorage.setItem('firebase_config', JSON.stringify(config));
+    // No-op, we use hardcoded config now
   },
-  hasConfig: () => {
-    return !!localStorage.getItem('firebase_config');
-  }
+  hasConfig: () => true
 };
 
 let app = null;
 let db = null;
 
 export const initFirebase = () => {
-  const config = ConfigManager.getConfig();
-  if (!config) return false;
-
   try {
     if (!app) {
-      app = initializeApp(config);
+      app = initializeApp(FIREBASE_CONFIG);
       db = getDatabase(app);
     }
     return true;
@@ -34,7 +34,7 @@ export const initFirebase = () => {
   }
 };
 
-// Auto init if config exists
+// Auto init
 initFirebase();
 
 export { db, ref, set, get, update, onValue, push, child, serverTimestamp };
