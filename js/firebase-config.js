@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, update, onValue, push, child, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, get, update, onValue, push, child, serverTimestamp, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 // Hardcoded config for GitHub Pages deployment
 const FIREBASE_CONFIG = {
@@ -37,4 +37,4 @@ export const initFirebase = () => {
 // Auto init
 initFirebase();
 
-export { db, ref, set, get, update, onValue, push, child, serverTimestamp };
+export { db, ref, set, get, update, onValue, push, child, serverTimestamp, remove };

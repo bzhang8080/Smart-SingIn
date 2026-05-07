@@ -1,4 +1,4 @@
-import { ConfigManager, initFirebase, db, ref, set, get, update, onValue, push, serverTimestamp } from './firebase-config.js';
+import { ConfigManager, initFirebase, db, ref, set, get, update, onValue, push, serverTimestamp, remove } from './firebase-config.js';
 
 // --- State ---
 let currentSessionId = null;
@@ -588,23 +588,139 @@ window.loadHistory = async () => {
       
       const div = document.createElement('div');
       div.className = 'feed-item';
+      div.style.flexDirection = 'column';
+      div.style.alignItems = 'stretch';
       div.innerHTML = `
-        <div class="feed-item-info" style="flex: 1;">
-          <div class="feed-item-avatar" style="background: var(--primary-color);">📅</div>
-          <div>
-            <div style="font-weight: 600;">${session.name} ${session.active ? '<span style="color:#34d399;font-size:0.8rem;">(进行中)</span>' : ''}</div>
-            <div style="font-size: 0.85rem; color: var(--text-muted);">${dateStr}</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div class="feed-item-info" style="flex: 1;">
+            <div class="feed-item-avatar" style="background: var(--primary-color);">📅</div>
+            <div>
+              <div style="font-weight: 600;">${session.name} ${session.active ? '<span style="color:#34d399;font-size:0.8rem;">(进行中)</span>' : ''}</div>
+              <div style="font-size: 0.85rem; color: var(--text-muted);">${dateStr}</div>
+            </div>
+          </div>
+          <div style="text-align: right; margin-right: 15px;">
+            <div style="font-weight: bold; color: ${checkins >= rosterCount && rosterCount > 0 ? '#34d399' : 'white'}">${checkins} / ${rosterCount}</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">签到人数</div>
           </div>
         </div>
-        <div style="text-align: right; margin-right: 15px;">
-          <div style="font-weight: bold; color: ${checkins >= rosterCount && rosterCount > 0 ? '#34d399' : 'white'}">${checkins} / ${rosterCount}</div>
-          <div style="font-size: 0.8rem; color: var(--text-muted);">签到人数</div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+          <button class="btn btn-sm btn-outline" onclick="viewHistorySession('${session.id}')">👁️ 查看缺勤</button>
+          <button class="btn btn-sm btn-outline" onclick="exportHistorySession('${session.id}', '${session.name}')">📥 导出报表</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteHistorySession('${session.id}', '${session.name}')">🗑️ 删除</button>
         </div>
       `;
       historyList.appendChild(div);
     }
   } catch (err) {
     historyList.innerHTML = `<div class="feed-empty" style="color: #fca5a5;">加载失败: ${err.message}</div>`;
+  }
+};
+
+window.viewHistorySession = async (sessionId) => {
+  const absentContainer = document.getElementById('absentList');
+  const headerText = document.querySelector('.absent-header h3');
+  absentContainer.innerHTML = '<div class="loading-spinner" style="margin: 20px auto;"></div>';
+  headerText.innerHTML = '🚨 查询中...';
+  
+  try {
+    const sessionSnap = await get(ref(db, `sessions/${sessionId}`));
+    const checkinSnap = await get(ref(db, `checkins/${sessionId}`));
+    
+    if (!sessionSnap.exists()) return;
+    const session = sessionSnap.val();
+    const checkins = checkinSnap.exists() ? checkinSnap.val() : {};
+    const roster = session.roster || {};
+    
+    headerText.innerHTML = `🚨 [${session.name}] 缺勤名单`;
+    
+    const rosterKeys = Object.keys(roster);
+    if (rosterKeys.length === 0) {
+      absentContainer.innerHTML = '<div class="feed-empty">该场次未导入名单数据</div>';
+      return;
+    }
+
+    const absentStudents = rosterKeys.filter(id => !checkins[id]).map(id => ({id, name: roster[id]}));
+    
+    if (absentStudents.length === 0) {
+      absentContainer.innerHTML = '<div class="feed-empty" style="color: #34d399">全员到齐！🎉</div>';
+      return;
+    }
+
+    absentContainer.innerHTML = '';
+    absentStudents.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'feed-item';
+      div.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+      div.innerHTML = `
+        <div class="feed-item-info">
+          <div class="feed-item-avatar" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5;">${s.name.charAt(0)}</div>
+          <div>
+            <div style="font-weight: 600; color: #fca5a5;">${s.name}</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">${s.id}</div>
+          </div>
+        </div>
+        <div class="feed-item-time" style="color: #fca5a5;">缺勤</div>
+      `;
+      absentContainer.appendChild(div);
+    });
+  } catch(e) {
+    absentContainer.innerHTML = `<div class="feed-empty" style="color: #fca5a5;">查询失败: ${e.message}</div>`;
+  }
+};
+
+window.exportHistorySession = async (sessionId, sessionName) => {
+  showToast('正在生成报表...', 'info');
+  try {
+    const sessionSnap = await get(ref(db, `sessions/${sessionId}`));
+    const checkinSnap = await get(ref(db, `checkins/${sessionId}`));
+    
+    if (!sessionSnap.exists()) return;
+    const session = sessionSnap.val();
+    const checkins = checkinSnap.exists() ? checkinSnap.val() : {};
+    const roster = session.roster || {};
+    
+    const wsData = [['学号', '姓名', '签到状态', '签到时间', '设备IP']];
+    const rosterKeys = Object.keys(roster);
+    
+    if (rosterKeys.length === 0) {
+      showToast('该场次没有名单数据', 'warn');
+      return;
+    }
+    
+    rosterKeys.forEach(id => {
+      const name = roster[id];
+      const checkin = checkins[id];
+      if (checkin) {
+        const timeStr = new Date(checkin.timestamp).toLocaleString('zh-CN');
+        wsData.push([id, name, '已签到', timeStr, checkin.ip || '未知']);
+      } else {
+        wsData.push([id, name, '未签到', '-', '-']);
+      }
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "考勤记录");
+    
+    const dateStr = new Date().toLocaleDateString().replace(/\//g, '-');
+    XLSX.writeFile(wb, `${sessionName}_考勤记录_${dateStr}.xlsx`);
+    showToast('导出成功', 'success');
+  } catch(e) {
+    showToast('导出失败: ' + e.message, 'error');
+  }
+};
+
+window.deleteHistorySession = async (sessionId, sessionName) => {
+  if (!confirm(`警告：确定要永久删除场次【${sessionName}】吗？删除后所有签到记录将不可恢复！`)) return;
+  
+  try {
+    await remove(ref(db, `sessions/${sessionId}`));
+    await remove(ref(db, `checkins/${sessionId}`));
+    showToast('删除成功', 'success');
+    window.loadHistory();
+  } catch(e) {
+    showToast('删除失败: ' + e.message, 'error');
   }
 };
 
