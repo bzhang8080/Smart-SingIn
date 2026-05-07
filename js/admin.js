@@ -37,13 +37,6 @@ window.onload = () => {
     document.getElementById('adminMain').classList.remove('hidden');
     checkFirebaseInit();
   }
-
-  const isLogged = sessionStorage.getItem('admin_logged');
-  if (isLogged) {
-    document.getElementById('loginOverlay').classList.remove('active');
-    document.getElementById('adminMain').classList.remove('hidden');
-    checkFirebaseInit();
-  }
 };
 
 // --- Login & Settings ---
