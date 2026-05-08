@@ -149,6 +149,43 @@ window.changePassword = async () => {
   }
 };
 
+window.migrateLegacyData = async () => {
+  if (!currentUser || !db) return;
+  const uid = currentUser.uid;
+  if (!confirm('这将会把旧系统的数据与您当前账号进行绑定。您确定要执行吗？')) return;
+  
+  showToast('正在迁移老数据，请稍候...', 'info');
+  try {
+    let count = 0;
+    const rostersSnap = await get(ref(db, 'settings/rosters'));
+    if (rostersSnap.exists()) {
+      await set(ref(db, `users/${uid}/settings/rosters`), rostersSnap.val());
+      count++;
+    }
+    
+    const sessionsSnap = await get(ref(db, 'sessions'));
+    if (sessionsSnap.exists()) {
+      await set(ref(db, `users/${uid}/sessions`), sessionsSnap.val());
+      count++;
+    }
+    
+    const checkinsSnap = await get(ref(db, 'checkins'));
+    if (checkinsSnap.exists()) {
+      await set(ref(db, `users/${uid}/checkins`), checkinsSnap.val());
+      count++;
+    }
+    
+    if (count > 0) {
+      showToast('老数据迁移成功！系统已自动刷新', 'success');
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      showToast('未找到可迁移的旧数据', 'warn');
+    }
+  } catch(e) {
+    showToast('数据迁移失败: ' + e.message, 'error');
+  }
+};
+
 // --- Tabs ---
 window.switchTab = (tabId) => {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
