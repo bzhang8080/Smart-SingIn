@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, set, get, update, onValue, push, child, serverTimestamp, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 // Hardcoded config for GitHub Pages deployment
 const FIREBASE_CONFIG = {
@@ -20,12 +21,14 @@ export const ConfigManager = {
 
 let app = null;
 let db = null;
+let auth = null;
 
 export const initFirebase = () => {
   try {
     if (!app) {
       app = initializeApp(FIREBASE_CONFIG);
       db = getDatabase(app);
+      auth = getAuth(app);
     }
     return true;
   } catch (error) {
@@ -37,4 +40,5 @@ export const initFirebase = () => {
 // Auto init
 initFirebase();
 
-export { db, ref, set, get, update, onValue, push, child, serverTimestamp, remove };
+export { db, auth, ref, set, get, update, onValue, push, child, serverTimestamp, remove };
+export { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential };

@@ -2,13 +2,14 @@ import { initFirebase, db, ref, get, set, serverTimestamp } from './firebase-con
 
 // --- State ---
 const urlParams = new URLSearchParams(window.location.search);
+const uid = urlParams.get('u');
 const sessionId = urlParams.get('s');
 const token = urlParams.get('t');
 let sessionData = null;
 
 // --- Initialization ---
 window.onload = async () => {
-  if (!sessionId || !token) {
+  if (!uid || !sessionId || !token) {
     showError('无效的签到链接', '请扫描教师屏幕上的最新二维码');
     return;
   }
@@ -48,7 +49,7 @@ const showAlreadyCheckedIn = () => {
 
 const validateSession = async () => {
   try {
-    const sessionRef = ref(db, `sessions/${sessionId}`);
+    const sessionRef = ref(db, `users/${uid}/sessions/${sessionId}`);
     const snapshot = await get(sessionRef);
     
     if (!snapshot.exists()) {
@@ -127,7 +128,7 @@ window.submitCheckin = async () => {
 
   try {
     // Re-verify token expiration to prevent holding the page open
-    const snap = await get(ref(db, `sessions/${sessionId}`));
+    const snap = await get(ref(db, `users/${uid}/sessions/${sessionId}`));
     const currentSession = snap.val();
     
     if (!currentSession.active) {
@@ -156,7 +157,7 @@ window.submitCheckin = async () => {
     } catch(e) { console.warn("Could not fetch IP"); }
 
     // Check if this student ID has already checked in
-    const checkinRef = ref(db, `checkins/${sessionId}/${studentId}`);
+    const checkinRef = ref(db, `users/${uid}/checkins/${sessionId}/${studentId}`);
     const existingCheckin = await get(checkinRef);
     if (existingCheckin.exists()) {
       throw new Error('该学号已签到，请勿重复提交');

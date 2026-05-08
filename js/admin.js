@@ -1,4 +1,4 @@
-import { ConfigManager, initFirebase, db, ref, set, get, update, onValue, push, serverTimestamp, remove } from './firebase-config.js';
+import { ConfigManager, initFirebase, db, auth, ref, set, get, update, onValue, push, serverTimestamp, remove, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword } from './firebase-config.js';
 
 // --- State ---
 let currentSessionId = null;
@@ -10,6 +10,7 @@ let checkinData = {};
 let autoStopTimer = null;
 let savedRosters = {};
 let previewClassId = null;
+let currentUser = null;
 
 // --- UI Helpers ---
 const showToast = (msg, type = 'info') => {
@@ -30,64 +31,56 @@ window.onload = () => {
     document.getElementById('currentTime').textContent = formatTime(new Date());
   }, 1000);
 
-  // Check login
-  const isLogged = sessionStorage.getItem('admin_logged');
-  if (isLogged) {
-    document.getElementById('loginOverlay').classList.remove('active');
-    document.getElementById('adminMain').classList.remove('hidden');
-    checkFirebaseInit();
+  if (initFirebase()) {
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        currentUser = user;
+        const userInfoEl = document.getElementById('currentUserInfo');
+        if(userInfoEl) userInfoEl.textContent = `当前用户: ${user.email}`;
+        enterAdmin();
+      } else {
+        currentUser = null;
+        document.getElementById('loginOverlay').classList.add('active');
+        document.getElementById('adminMain').classList.add('hidden');
+      }
+    });
+  } else {
+    const errorMsg = document.getElementById('loginError');
+    if (errorMsg) {
+        errorMsg.textContent = 'Firebase未就绪，请检查配置';
+        errorMsg.classList.remove('hidden');
+    }
   }
 };
 
-// --- Login & Settings ---
 const enterAdmin = (goSettings = false) => {
-  sessionStorage.setItem('admin_logged', 'true');
   document.getElementById('loginOverlay').classList.remove('active');
   document.getElementById('adminMain').classList.remove('hidden');
   if (goSettings) switchTab('settings');
-  else checkFirebaseInit();
+  else listenToRosters();
 };
 
 window.adminLogin = async () => {
+  const email = document.getElementById('adminEmail').value.trim();
   const pwd = document.getElementById('adminPassword').value.trim();
   const errorMsg = document.getElementById('loginError');
   const loginBtn = document.getElementById('loginBtn');
+  
   errorMsg.classList.add('hidden');
-
-  // Master password: 123456 ALWAYS works, no matter what
-  if (pwd === '123456') {
-    enterAdmin();
-    showToast('登录成功', 'success');
-    return;
-  }
-
-  // No Firebase config => only master password works
-  if (!ConfigManager.hasConfig() || !db) {
-    errorMsg.textContent = '数据库未就绪，请使用默认密码 123456 登录';
+  if (!email || !pwd) {
+    errorMsg.textContent = '请输入邮箱和密码';
     errorMsg.classList.remove('hidden');
     return;
   }
 
-  // Normal login: verify against Firebase
   loginBtn.disabled = true;
   loginBtn.textContent = '验证中...';
 
   try {
-    const snap = await Promise.race([
-      get(ref(db, 'settings/adminPwd')),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-    ]);
-    const savedPwd = snap.exists() ? snap.val() : '123456';
-
-    if (pwd === savedPwd) {
-      enterAdmin();
-      showToast('登录成功', 'success');
-    } else {
-      errorMsg.textContent = '密码错误，请重试';
-      errorMsg.classList.remove('hidden');
-    }
+    await signInWithEmailAndPassword(auth, email, pwd);
+    showToast('登录成功', 'success');
   } catch(e) {
-    errorMsg.textContent = '网络异常: ' + e.message;
+    errorMsg.textContent = '登录失败: ' + e.message;
     errorMsg.classList.remove('hidden');
   } finally {
     loginBtn.disabled = false;
@@ -95,9 +88,46 @@ window.adminLogin = async () => {
   }
 };
 
-window.adminLogout = () => {
-  sessionStorage.removeItem('admin_logged');
-  location.reload();
+window.adminRegister = async () => {
+  const email = document.getElementById('adminEmail').value.trim();
+  const pwd = document.getElementById('adminPassword').value.trim();
+  const errorMsg = document.getElementById('loginError');
+  const registerBtn = document.getElementById('registerBtn');
+  
+  errorMsg.classList.add('hidden');
+  if (!email || !pwd) {
+    errorMsg.textContent = '请输入邮箱和密码';
+    errorMsg.classList.remove('hidden');
+    return;
+  }
+  if (pwd.length < 6) {
+    errorMsg.textContent = '密码至少需要6位';
+    errorMsg.classList.remove('hidden');
+    return;
+  }
+
+  registerBtn.disabled = true;
+  registerBtn.textContent = '注册中...';
+
+  try {
+    await createUserWithEmailAndPassword(auth, email, pwd);
+    showToast('注册成功', 'success');
+  } catch(e) {
+    errorMsg.textContent = '注册失败: ' + e.message;
+    errorMsg.classList.remove('hidden');
+  } finally {
+    registerBtn.disabled = false;
+    registerBtn.textContent = '注 册';
+  }
+};
+
+window.adminLogout = async () => {
+  try {
+    await signOut(auth);
+    showToast('已退出登录', 'info');
+  } catch (e) {
+    showToast('退出失败: ' + e.message, 'error');
+  }
 };
 
 window.changePassword = async () => {
@@ -107,17 +137,15 @@ window.changePassword = async () => {
     return;
   }
   
-  if (!db) {
-    showToast('数据库未连接', 'error');
-    return;
-  }
+  if (!currentUser) return;
   
   try {
-    await set(ref(db, 'settings/adminPwd'), newPwd);
+    await updatePassword(currentUser, newPwd);
     document.getElementById('newPassword').value = '';
-    showToast('密码修改成功，所有设备已同步', 'success');
+    showToast('密码修改成功，请重新登录', 'success');
+    await signOut(auth);
   } catch (e) {
-    showToast('密码修改失败: ' + e.message, 'error');
+    showToast('修改失败 (可能需要重新登录后再试): ' + e.message, 'error');
   }
 };
 
@@ -142,21 +170,7 @@ window.switchTab = (tabId) => {
 };
 
 // --- Firebase Config ---
-const checkFirebaseInit = () => {
-  if (!ConfigManager.hasConfig()) {
-    showToast('首次使用请先配置 Firebase', 'warn');
-    switchTab('settings');
-  } else {
-    if (!db) {
-       const ok = initFirebase();
-       if(!ok) showToast('Firebase 初始化失败，请检查配置', 'error');
-       else listenToRosters();
-    } else {
-       listenToRosters();
-    }
-  }
-  
-  // Fill settings form if config exists
+// Fill settings form if config exists
   const config = ConfigManager.getConfig();
   if (config) {
     document.getElementById('fbApiKey').value = config.apiKey || '';
@@ -298,7 +312,7 @@ window.confirmColumnMapping = async () => {
 
   try {
     const classId = 'cls_' + Date.now();
-    await set(ref(db, `settings/rosters/${classId}`), {
+    await set(ref(db, `users/${currentUser.uid}/settings/rosters/${classId}`), {
       name: className,
       students: newRoster
     });
@@ -313,7 +327,7 @@ window.confirmColumnMapping = async () => {
 
 const listenToRosters = () => {
   if (!db) return;
-  onValue(ref(db, 'settings/rosters'), (snap) => {
+  onValue(ref(db, `users/${currentUser.uid}/settings/rosters`), (snap) => {
     savedRosters = snap.exists() ? snap.val() : {};
     renderSavedClasses();
     updateSessionRosterSelect();
@@ -384,7 +398,7 @@ window.previewRoster = (id) => {
 window.deleteRoster = async (id, name) => {
   if (!confirm(`确定要永久删除课堂名单 [${name}] 吗？`)) return;
   try {
-    await remove(ref(db, `settings/rosters/${id}`));
+    await remove(ref(db, `users/${currentUser.uid}/settings/rosters/${id}`));
     if (previewClassId === id) previewClassId = null;
     showToast('删除成功', 'success');
   } catch(e) {
@@ -446,7 +460,7 @@ window.startSession = async () => {
   rosterData = savedRosters[selectedClassId].students || [];
 
   try {
-    const sessionsRef = ref(db, 'sessions');
+    const sessionsRef = ref(db, `users/${currentUser.uid}/sessions`);
     const newSessionRef = push(sessionsRef);
     currentSessionId = newSessionRef.key;
     
@@ -496,7 +510,7 @@ window.stopSession = async (isAuto = false) => {
   try {
     if (autoStopTimer) clearTimeout(autoStopTimer);
     
-    await update(ref(db, `sessions/${currentSessionId}`), {
+    await update(ref(db, `users/${currentUser.uid}/sessions/${currentSessionId}`), {
       active: false,
       endTime: serverTimestamp()
     });
@@ -534,14 +548,14 @@ const generateNewToken = async () => {
 
   try {
     // Update active token in session
-    await update(ref(db, `sessions/${currentSessionId}`), {
+    await update(ref(db, `users/${currentUser.uid}/sessions/${currentSessionId}`), {
       activeToken: currentToken,
       tokenExpiresAt: expiryTime
     });
 
     // Generate QR Code URL
     const baseUrl = window.location.href.replace('admin.html', 'checkin.html');
-    const qrUrl = `${baseUrl}?s=${currentSessionId}&t=${currentToken}`;
+    const qrUrl = `${baseUrl}?u=${currentUser.uid}&s=${currentSessionId}&t=${currentToken}`;
 
     if (!qrCode) {
       qrCode = new QRCode(document.getElementById("qrcode"), {
@@ -582,7 +596,7 @@ const startQrRefreshLoop = () => {
 const listenToCheckins = () => {
   if (!currentSessionId || !db) return;
 
-  const checkinsRef = ref(db, `checkins/${currentSessionId}`);
+  const checkinsRef = ref(db, `users/${currentUser.uid}/checkins/${currentSessionId}`);
   onValue(checkinsRef, (snapshot) => {
     if (snapshot.exists()) {
       checkinData = snapshot.val();
@@ -682,7 +696,7 @@ window.loadHistory = async () => {
   historyList.innerHTML = '<div class="loading-spinner" style="margin: 20px auto;"></div>';
 
   try {
-    const snap = await get(ref(db, 'sessions'));
+    const snap = await get(ref(db, `users/${currentUser.uid}/sessions`));
     if (!snap.exists()) {
       historyList.innerHTML = '<div class="feed-empty">暂无历史记录</div>';
       return;
@@ -740,8 +754,8 @@ window.viewHistorySession = async (sessionId) => {
   headerText.innerHTML = '🚨 查询中...';
   
   try {
-    const sessionSnap = await get(ref(db, `sessions/${sessionId}`));
-    const checkinSnap = await get(ref(db, `checkins/${sessionId}`));
+    const sessionSnap = await get(ref(db, `users/${currentUser.uid}/sessions/${sessionId}`));
+    const checkinSnap = await get(ref(db, `users/${currentUser.uid}/checkins/${sessionId}`));
     
     if (!sessionSnap.exists()) return;
     const session = sessionSnap.val();
@@ -788,8 +802,8 @@ window.viewHistorySession = async (sessionId) => {
 window.exportHistorySession = async (sessionId, sessionName) => {
   showToast('正在生成报表...', 'info');
   try {
-    const sessionSnap = await get(ref(db, `sessions/${sessionId}`));
-    const checkinSnap = await get(ref(db, `checkins/${sessionId}`));
+    const sessionSnap = await get(ref(db, `users/${currentUser.uid}/sessions/${sessionId}`));
+    const checkinSnap = await get(ref(db, `users/${currentUser.uid}/checkins/${sessionId}`));
     
     if (!sessionSnap.exists()) return;
     const session = sessionSnap.val();
@@ -831,8 +845,8 @@ window.deleteHistorySession = async (sessionId, sessionName) => {
   if (!confirm(`警告：确定要永久删除场次【${sessionName}】吗？删除后所有签到记录将不可恢复！`)) return;
   
   try {
-    await remove(ref(db, `sessions/${sessionId}`));
-    await remove(ref(db, `checkins/${sessionId}`));
+    await remove(ref(db, `users/${currentUser.uid}/sessions/${sessionId}`));
+    await remove(ref(db, `users/${currentUser.uid}/checkins/${sessionId}`));
     showToast('删除成功', 'success');
     window.loadHistory();
   } catch(e) {
