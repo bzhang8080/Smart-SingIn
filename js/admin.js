@@ -17,7 +17,7 @@ const showToast = (msg, type = 'info') => {
   const toast = document.getElementById('toast');
   toast.textContent = msg;
   toast.className = `toast show ${type}`;
-  setTimeout(() => toast.classList.remove('show'), 3000);
+  setTimeout(() => toast.classList.remove('show'), 5000);
 };
 
 const formatTime = (date) => {
@@ -152,39 +152,53 @@ window.changePassword = async () => {
 };
 
 window.migrateLegacyData = async () => {
-  if (!currentUser || !db) return;
+  if (!currentUser || !db) {
+    showToast('请先登录后再操作', 'error');
+    return;
+  }
   const uid = currentUser.uid;
-  if (!confirm('这将会把旧系统的数据与您当前账号进行绑定。您确定要执行吗？')) return;
+  if (!confirm('这将会把旧系统的数据与您当前账号进行绑定。\n\n注意：迁移会复制旧数据到您的账号下，不会删除原始数据。\n\n您确定要执行吗？')) return;
   
   showToast('正在迁移老数据，请稍候...', 'info');
   try {
     let count = 0;
-    const rostersSnap = await get(ref(db, 'settings/rosters'));
-    if (rostersSnap.exists()) {
-      await set(ref(db, `users/${uid}/settings/rosters`), rostersSnap.val());
-      count++;
-    }
+    let details = [];
     
-    const sessionsSnap = await get(ref(db, 'sessions'));
-    if (sessionsSnap.exists()) {
-      await set(ref(db, `users/${uid}/sessions`), sessionsSnap.val());
-      count++;
-    }
+    try {
+      const rostersSnap = await get(ref(db, 'settings/rosters'));
+      if (rostersSnap.exists()) {
+        await set(ref(db, `users/${uid}/settings/rosters`), rostersSnap.val());
+        count++;
+        details.push('名单');
+      }
+    } catch(e) { console.warn('名单迁移失败:', e); }
     
-    const checkinsSnap = await get(ref(db, 'checkins'));
-    if (checkinsSnap.exists()) {
-      await set(ref(db, `users/${uid}/checkins`), checkinsSnap.val());
-      count++;
-    }
+    try {
+      const sessionsSnap = await get(ref(db, 'sessions'));
+      if (sessionsSnap.exists()) {
+        await set(ref(db, `users/${uid}/sessions`), sessionsSnap.val());
+        count++;
+        details.push('签到场次');
+      }
+    } catch(e) { console.warn('场次迁移失败:', e); }
+    
+    try {
+      const checkinsSnap = await get(ref(db, 'checkins'));
+      if (checkinsSnap.exists()) {
+        await set(ref(db, `users/${uid}/checkins`), checkinsSnap.val());
+        count++;
+        details.push('签到记录');
+      }
+    } catch(e) { console.warn('签到记录迁移失败:', e); }
     
     if (count > 0) {
-      showToast('老数据迁移成功！系统已自动刷新', 'success');
-      setTimeout(() => location.reload(), 1500);
+      alert(`迁移成功！\n\n已迁移: ${details.join('、')}\n\n点击确定刷新页面`);
+      location.reload();
     } else {
-      showToast('未找到可迁移的旧数据', 'warn');
+      alert('未找到可迁移的旧数据。\n\n可能原因：\n1. 旧数据已经迁移过\n2. 数据库安全规则阻止了读取旧路径\n3. 之前没有使用过旧系统');
     }
   } catch(e) {
-    showToast('数据迁移失败: ' + e.message, 'error');
+    alert('数据迁移失败: ' + e.message);
   }
 };
 
@@ -752,7 +766,7 @@ window.loadHistory = async () => {
       const dateStr = new Date(session.startTime).toLocaleString('zh-CN');
       const rosterCount = session.roster ? Object.keys(session.roster).length : 0;
       
-      const checkinSnap = await get(ref(db, `checkins/${session.id}`));
+      const checkinSnap = await get(ref(db, `users/${currentUser.uid}/checkins/${session.id}`));
       const checkins = checkinSnap.exists() ? Object.keys(checkinSnap.val()).length : 0;
       
       const div = document.createElement('div');
