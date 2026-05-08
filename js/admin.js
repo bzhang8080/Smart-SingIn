@@ -58,6 +58,8 @@ const enterAdmin = (goSettings = false) => {
   document.getElementById('adminMain').classList.remove('hidden');
   if (goSettings) switchTab('settings');
   else listenToRosters();
+  // Fill settings form with current config
+  setTimeout(() => { if (typeof fillSettingsForm === 'function') fillSettingsForm(); }, 100);
 };
 
 window.adminLogin = async () => {
@@ -207,7 +209,7 @@ window.switchTab = (tabId) => {
 };
 
 // --- Firebase Config ---
-// Fill settings form if config exists
+const fillSettingsForm = () => {
   const config = ConfigManager.getConfig();
   if (config) {
     document.getElementById('fbApiKey').value = config.apiKey || '';
