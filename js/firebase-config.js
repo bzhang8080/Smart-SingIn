@@ -1,6 +1,7 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, update, onValue, push, child, serverTimestamp, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+// Firebase SDK - 使用本地化文件（避免 gstatic.com 在中国大陆不可达）
+import { initializeApp } from "./lib/firebase-app.js";
+import { getDatabase, ref, set, get, update, onValue, push, child, serverTimestamp, remove } from "./lib/firebase-database.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "./lib/firebase-auth.js";
 
 // Hardcoded config for GitHub Pages deployment
 const FIREBASE_CONFIG = {

@@ -530,3 +530,68 @@ input:focus, select:focus {
   opacity: 0; font-size: 0.95rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
 }
 .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* Network Warning Banner */
+.network-warning {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(239, 68, 68, 0.95);
+  color: white;
+  text-align: center;
+  padding: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  z-index: 3000;
+  animation: slideDown 0.3s ease;
+}
+.network-warning.hidden { display: none; }
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+/* Loading Hints for Slow Networks */
+.loading-hint {
+  margin-top: 30px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 320px;
+  text-align: left;
+  animation: fadeIn 0.5s ease;
+}
+.loading-hint p {
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #fcd34d;
+}
+.loading-hint ul {
+  list-style: none;
+  padding: 0;
+}
+.loading-hint ul li {
+  padding: 6px 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.loading-hint ul li::before {
+  content: "• ";
+  color: #fcd34d;
+}
+
+/* Retry Button */
+.retry-btn {
+  margin-top: 20px;
+  padding: 12px 32px !important;
+}
+
+/* Responsive improvements for mobile */
+@media (max-width: 480px) {
+  .checkin-card { padding: 24px 18px; }
+  .checkin-input { padding: 14px 12px !important; font-size: 1rem !important; }
+  .btn-checkin { padding: 14px !important; font-size: 1rem !important; }
+  .checkin-header h1 { font-size: 1.5rem; }
+}

@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>教师管理端 - 智能签到系统</title>
   <link rel="stylesheet" href="css/style.css">
-  <!-- SheetJS for Excel parsing -->
+  <!-- DNS 预连接 -->
+  <link rel="dns-prefetch" href="https://smartsignin-c0878-default-rtdb.firebaseio.com">
+  <link rel="preconnect" href="https://smartsignin-c0878-default-rtdb.firebaseio.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.sheetjs.com">
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <!-- QRCode.js -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
@@ -128,10 +132,10 @@
               <div class="qr-info">
                 <div class="qr-countdown">
                   <span class="countdown-label">二维码将在</span>
-                  <span class="countdown-num" id="qrCountdown">30</span>
+                  <span class="countdown-num" id="qrCountdown">60</span>
                   <span class="countdown-label">秒后刷新</span>
                 </div>
-                <div class="qr-warning">⚠️ 二维码每30秒自动刷新，请勿截图转发</div>
+                <div class="qr-warning">⚠️ 二维码每60秒自动刷新，请勿截图转发</div>
               </div>
             </div>
           </div>
@@ -331,7 +335,7 @@
               <span class="step-num">4</span>
               <div>
                 <strong>防转发机制</strong>
-                <p>二维码每30秒自动更新，旧二维码立即失效；同一学号只能签到一次；系统记录IP和设备信息</p>
+                <p>二维码每60秒自动更新，旧二维码立即失效；同一学号只能签到一次；系统记录IP和设备信息</p>
               </div>
             </div>
             <div class="help-step">

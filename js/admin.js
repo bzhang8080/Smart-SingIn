@@ -597,7 +597,7 @@ const generateNewToken = async () => {
   
   // Create a random token
   currentToken = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-  const expiryTime = Date.now() + 45000; // 30s display + 15s grace period
+  const expiryTime = Date.now() + 90000; // 60s display + 30s grace period for slow networks
 
   try {
     // Update active token in session
@@ -629,7 +629,7 @@ const generateNewToken = async () => {
 };
 
 const startQrRefreshLoop = () => {
-  let countdown = 30;
+  let countdown = 60;
   const countdownEl = document.getElementById('qrCountdown');
   
   generateNewToken(); // Initial token
@@ -639,7 +639,7 @@ const startQrRefreshLoop = () => {
     countdownEl.textContent = countdown;
     
     if (countdown <= 0) {
-      countdown = 30;
+      countdown = 60;
       generateNewToken();
     }
   }, 1000);

@@ -4,15 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>学生签到 - 智能签到系统</title>
+  <!-- DNS 预连接：提前建立与 Firebase 服务器的连接 -->
+  <link rel="dns-prefetch" href="https://smartsignin-c0878-default-rtdb.firebaseio.com">
+  <link rel="preconnect" href="https://smartsignin-c0878-default-rtdb.firebaseio.com" crossorigin>
+  <link rel="dns-prefetch" href="https://smartsignin-c0878.firebaseapp.com">
+  <link rel="preconnect" href="https://smartsignin-c0878.firebaseapp.com" crossorigin>
   <link rel="stylesheet" href="css/style.css">
   <script type="module" src="js/firebase-config.js"></script>
   <script type="module" src="js/checkin.js"></script>
+  <!-- 网络状态监测脚本（非模块，立即执行） -->
+  <script>
+    // 网络检测 - 在页面加载时就开始监控
+    window.addEventListener('offline', function() {
+      var el = document.getElementById('networkWarning');
+      if (el) el.classList.remove('hidden');
+    });
+    window.addEventListener('online', function() {
+      var el = document.getElementById('networkWarning');
+      if (el) el.classList.add('hidden');
+    });
+    // 超时检测：如果 20 秒后还在加载状态，显示网络提示
+    setTimeout(function() {
+      var loading = document.getElementById('loadingState');
+      if (loading && loading.classList.contains('active')) {
+        var hint = document.getElementById('loadingHint');
+        if (hint) hint.classList.remove('hidden');
+      }
+    }, 15000);
+  </script>
 </head>
 <body class="checkin-page">
+  <!-- 网络断开警告 -->
+  <div id="networkWarning" class="network-warning hidden">
+    📶 网络连接已断开，请检查移动数据或WiFi
+  </div>
+
   <!-- Loading State -->
   <div id="loadingState" class="checkin-screen active">
     <div class="loading-spinner"></div>
-    <p class="loading-text">正在验证签到码...</p>
+    <p class="loading-text">正在连接服务器...</p>
+    <div id="loadingHint" class="loading-hint hidden">
+      <p>⏳ 加载时间较长，可能原因：</p>
+      <ul>
+        <li>移动数据网络信号弱</li>
+        <li>建议切换到WiFi网络重试</li>
+        <li>或关闭页面重新扫描二维码</li>
+      </ul>
+    </div>
   </div>
 
   <!-- Error State -->
@@ -25,6 +63,9 @@
       <p>此二维码已过期</p>
       <p class="hint-small">请扫描教师屏幕上的最新二维码</p>
     </div>
+    <button class="btn btn-outline retry-btn" onclick="location.reload()" style="margin-top: 20px;">
+      🔄 重新尝试
+    </button>
   </div>
 
   <!-- Form State -->
@@ -38,7 +79,7 @@
     <div class="checkin-card">
       <div class="security-badge">
         <span class="security-icon">🔒</span>
-        <span>安全验证中</span>
+        <span>安全验证通过</span>
         <div class="token-timer">
           <div class="timer-bar" id="timerBar"></div>
         </div>
@@ -56,6 +97,7 @@
           autocorrect="off"
           autocapitalize="none"
           spellcheck="false"
+          inputmode="numeric"
         >
       </div>
 
