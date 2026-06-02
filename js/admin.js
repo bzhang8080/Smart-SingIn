@@ -1,4 +1,4 @@
-import { ConfigManager, initFirebase, db, auth, ref, set, get, update, onValue, push, serverTimestamp, remove, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword } from './firebase-config.js';
+import { AuthAPI, RosterAPI, SessionAPI, getToken, setToken, clearToken, getUser, setUser, ConfigManager } from './api-config.js';
 
 // --- State ---
 let currentSessionId = null;
@@ -11,6 +11,7 @@ let autoStopTimer = null;
 let savedRosters = {};
 let previewClassId = null;
 let currentUser = null;
+let pollingInterval = null;
 
 // --- UI Helpers ---
 const showToast = (msg, type = 'info') => {
@@ -25,31 +26,31 @@ const formatTime = (date) => {
 };
 
 // --- Initialization ---
-window.onload = () => {
+window.onload = async () => {
   // Update clock
   setInterval(() => {
     document.getElementById('currentTime').textContent = formatTime(new Date());
   }, 1000);
 
-  if (initFirebase()) {
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        currentUser = user;
-        const userInfoEl = document.getElementById('currentUserInfo');
-        if(userInfoEl) userInfoEl.textContent = `当前用户: ${user.email}`;
-        enterAdmin();
-      } else {
-        currentUser = null;
-        document.getElementById('loginOverlay').classList.add('active');
-        document.getElementById('adminMain').classList.add('hidden');
-      }
-    });
-  } else {
-    const errorMsg = document.getElementById('loginError');
-    if (errorMsg) {
-        errorMsg.textContent = 'Firebase未就绪，请检查配置';
-        errorMsg.classList.remove('hidden');
+  const token = getToken();
+  if (token) {
+    try {
+      // Validate token by trying to load rosters
+      await RosterAPI.list();
+      currentUser = getUser();
+      const userInfoEl = document.getElementById('currentUserInfo');
+      if(userInfoEl) userInfoEl.textContent = `当前用户: ${currentUser.email}`;
+      enterAdmin();
+    } catch (err) {
+      clearToken();
+      currentUser = null;
+      document.getElementById('loginOverlay').classList.add('active');
+      document.getElementById('adminMain').classList.add('hidden');
     }
+  } else {
+    currentUser = null;
+    document.getElementById('loginOverlay').classList.add('active');
+    document.getElementById('adminMain').classList.add('hidden');
   }
 };
 
@@ -57,7 +58,7 @@ const enterAdmin = (goSettings = false) => {
   document.getElementById('loginOverlay').classList.remove('active');
   document.getElementById('adminMain').classList.remove('hidden');
   if (goSettings) switchTab('settings');
-  else listenToRosters();
+  else loadRosters(); // load rosters instead of real-time listener
   // Fill settings form with current config
   setTimeout(() => { if (typeof fillSettingsForm === 'function') fillSettingsForm(); }, 100);
 };
@@ -79,8 +80,16 @@ window.adminLogin = async () => {
   loginBtn.textContent = '验证中...';
 
   try {
-    await signInWithEmailAndPassword(auth, email, pwd);
+    const res = await AuthAPI.login(email, pwd);
+    setToken(res.token);
+    setUser(res.user);
+    currentUser = res.user;
+    
+    const userInfoEl = document.getElementById('currentUserInfo');
+    if(userInfoEl) userInfoEl.textContent = `当前用户: ${currentUser.email}`;
+    
     showToast('登录成功', 'success');
+    enterAdmin();
   } catch(e) {
     errorMsg.textContent = '登录失败: ' + e.message;
     errorMsg.classList.remove('hidden');
@@ -112,8 +121,16 @@ window.adminRegister = async () => {
   registerBtn.textContent = '注册中...';
 
   try {
-    await createUserWithEmailAndPassword(auth, email, pwd);
+    const res = await AuthAPI.register(email, pwd);
+    setToken(res.token);
+    setUser(res.user);
+    currentUser = res.user;
+    
+    const userInfoEl = document.getElementById('currentUserInfo');
+    if(userInfoEl) userInfoEl.textContent = `当前用户: ${currentUser.email}`;
+    
     showToast('注册成功', 'success');
+    enterAdmin();
   } catch(e) {
     errorMsg.textContent = '注册失败: ' + e.message;
     errorMsg.classList.remove('hidden');
@@ -123,13 +140,10 @@ window.adminRegister = async () => {
   }
 };
 
-window.adminLogout = async () => {
-  try {
-    await signOut(auth);
-    showToast('已退出登录', 'info');
-  } catch (e) {
-    showToast('退出失败: ' + e.message, 'error');
-  }
+window.adminLogout = () => {
+  clearToken();
+  showToast('已退出登录', 'info');
+  setTimeout(() => location.reload(), 500);
 };
 
 window.changePassword = async () => {
@@ -142,63 +156,13 @@ window.changePassword = async () => {
   if (!currentUser) return;
   
   try {
-    await updatePassword(currentUser, newPwd);
+    await AuthAPI.changePassword(newPwd);
     document.getElementById('newPassword').value = '';
     showToast('密码修改成功，请重新登录', 'success');
-    await signOut(auth);
+    clearToken();
+    setTimeout(() => location.reload(), 1500);
   } catch (e) {
-    showToast('修改失败 (可能需要重新登录后再试): ' + e.message, 'error');
-  }
-};
-
-window.migrateLegacyData = async () => {
-  if (!currentUser || !db) {
-    showToast('请先登录后再操作', 'error');
-    return;
-  }
-  const uid = currentUser.uid;
-  if (!confirm('这将会把旧系统的数据与您当前账号进行绑定。\n\n注意：迁移会复制旧数据到您的账号下，不会删除原始数据。\n\n您确定要执行吗？')) return;
-  
-  showToast('正在迁移老数据，请稍候...', 'info');
-  try {
-    let count = 0;
-    let details = [];
-    
-    try {
-      const rostersSnap = await get(ref(db, 'settings/rosters'));
-      if (rostersSnap.exists()) {
-        await set(ref(db, `users/${uid}/settings/rosters`), rostersSnap.val());
-        count++;
-        details.push('名单');
-      }
-    } catch(e) { console.warn('名单迁移失败:', e); }
-    
-    try {
-      const sessionsSnap = await get(ref(db, 'sessions'));
-      if (sessionsSnap.exists()) {
-        await set(ref(db, `users/${uid}/sessions`), sessionsSnap.val());
-        count++;
-        details.push('签到场次');
-      }
-    } catch(e) { console.warn('场次迁移失败:', e); }
-    
-    try {
-      const checkinsSnap = await get(ref(db, 'checkins'));
-      if (checkinsSnap.exists()) {
-        await set(ref(db, `users/${uid}/checkins`), checkinsSnap.val());
-        count++;
-        details.push('签到记录');
-      }
-    } catch(e) { console.warn('签到记录迁移失败:', e); }
-    
-    if (count > 0) {
-      alert(`迁移成功！\n\n已迁移: ${details.join('、')}\n\n点击确定刷新页面`);
-      location.reload();
-    } else {
-      alert('未找到可迁移的旧数据。\n\n可能原因：\n1. 旧数据已经迁移过\n2. 数据库安全规则阻止了读取旧路径\n3. 之前没有使用过旧系统');
-    }
-  } catch(e) {
-    alert('数据迁移失败: ' + e.message);
+    showToast('修改失败: ' + e.message, 'error');
   }
 };
 
@@ -222,57 +186,44 @@ window.switchTab = (tabId) => {
   }
 };
 
-// --- Firebase Config ---
+// --- API Config ---
 const fillSettingsForm = () => {
-  const config = ConfigManager.getConfig();
-  if (config) {
-    document.getElementById('fbApiKey').value = config.apiKey || '';
-    document.getElementById('fbAuthDomain').value = config.authDomain || '';
-    document.getElementById('fbDatabaseUrl').value = config.databaseURL || '';
-    document.getElementById('fbProjectId').value = config.projectId || '';
-  }
+  document.getElementById('apiBaseUrl').value = ConfigManager.getApiBase();
 };
 
-window.saveFirebaseConfig = () => {
-  const config = {
-    apiKey: document.getElementById('fbApiKey').value.trim(),
-    authDomain: document.getElementById('fbAuthDomain').value.trim(),
-    databaseURL: document.getElementById('fbDatabaseUrl').value.trim(),
-    projectId: document.getElementById('fbProjectId').value.trim(),
-  };
-  
-  if (!config.apiKey || !config.databaseURL) {
-    showToast('请至少填写 API Key 和 Database URL', 'error');
+window.saveApiConfig = () => {
+  const url = document.getElementById('apiBaseUrl').value.trim();
+  if (!url) {
+    showToast('请填写 API 地址', 'error');
     return;
   }
   
-  ConfigManager.saveConfig(config);
-  showToast('配置已保存，请刷新页面生效', 'success');
-  setTimeout(() => location.reload(), 1500);
+  ConfigManager.setApiBase(url);
+  showToast('配置已保存', 'success');
+  setTimeout(() => location.reload(), 1000);
 };
 
-window.testFirebaseConnection = async () => {
-  const statusEl = document.getElementById('fbConfigStatus');
+window.testApiConnection = async () => {
+  const statusEl = document.getElementById('apiConfigStatus');
   statusEl.classList.remove('hidden');
   statusEl.textContent = '测试连接中...';
   statusEl.style.color = 'white';
   
-  if (!db) {
-    if(!initFirebase()) {
-      statusEl.textContent = '初始化失败，请检查配置格式';
-      statusEl.style.color = '#fca5a5';
-      return;
-    }
-  }
-
   try {
-    const testRef = ref(db, '.info/connected');
+    // try to fetch rosters to test auth + connection
+    await RosterAPI.list();
     statusEl.textContent = '连接成功！';
     statusEl.style.color = '#34d399';
     setTimeout(() => statusEl.classList.add('hidden'), 3000);
   } catch (err) {
-    statusEl.textContent = '连接失败: ' + err.message;
-    statusEl.style.color = '#fca5a5';
+    if (err.message.includes('Unauthorized') || err.message.includes('token')) {
+       // if we got an auth error, it means the API is reachable!
+       statusEl.textContent = '连接成功，但请重新登录。';
+       statusEl.style.color = '#34d399';
+    } else {
+       statusEl.textContent = '连接失败: ' + err.message;
+       statusEl.style.color = '#fca5a5';
+    }
   }
 };
 
@@ -324,7 +275,6 @@ window.handleRosterFile = (input) => {
 window.confirmColumnMapping = async () => {
   let className = document.getElementById('newClassName').value.trim();
   if (!className) {
-    // Auto-generate name if user forgot
     className = '课堂_' + new Date().toLocaleTimeString('zh-CN', {hour12: false});
   }
 
@@ -337,7 +287,6 @@ window.confirmColumnMapping = async () => {
   }
 
   const newRoster = [];
-  // Start from row 0 to catch everything, and dynamically ignore the header row
   for (let i = 0; i < tempExcelData.length; i++) {
     const row = tempExcelData[i];
     if (!row || row.length === 0) continue;
@@ -345,7 +294,6 @@ window.confirmColumnMapping = async () => {
     const sid = row[idIdx] ? String(row[idIdx]).trim() : '';
     const sname = row[nameIdx] ? String(row[nameIdx]).trim() : '';
     
-    // Ignore header row if it is caught in the loop
     if (sid === '学号' || sname === '姓名' || sname === '名字' || sid === '学号/工号') {
       continue;
     }
@@ -364,24 +312,19 @@ window.confirmColumnMapping = async () => {
   }
 
   try {
-    const classId = 'cls_' + Date.now();
-    await set(ref(db, `users/${currentUser.uid}/settings/rosters/${classId}`), {
-      name: className,
-      students: newRoster
-    });
-    
+    await RosterAPI.create(className, newRoster);
     showToast(`成功导入 [${className}]，共 ${newRoster.length} 人`, 'success');
     document.getElementById('newClassName').value = '';
-    previewClassId = classId;
+    await loadRosters();
   } catch(e) {
     showToast('保存名单失败: ' + e.message, 'error');
   }
 };
 
-const listenToRosters = () => {
-  if (!db) return;
-  onValue(ref(db, `users/${currentUser.uid}/settings/rosters`), (snap) => {
-    savedRosters = snap.exists() ? snap.val() : {};
+const loadRosters = async () => {
+  try {
+    const res = await RosterAPI.list();
+    savedRosters = res.rosters || {};
     renderSavedClasses();
     updateSessionRosterSelect();
     
@@ -391,7 +334,9 @@ const listenToRosters = () => {
     } else {
       document.getElementById('rosterPreview').classList.add('hidden');
     }
-  });
+  } catch (err) {
+    console.error('Failed to load rosters:', err);
+  }
 };
 
 const renderSavedClasses = () => {
@@ -451,9 +396,10 @@ window.previewRoster = (id) => {
 window.deleteRoster = async (id, name) => {
   if (!confirm(`确定要永久删除课堂名单 [${name}] 吗？`)) return;
   try {
-    await remove(ref(db, `users/${currentUser.uid}/settings/rosters/${id}`));
+    await RosterAPI.delete(id);
     if (previewClassId === id) previewClassId = null;
     showToast('删除成功', 'success');
+    await loadRosters();
   } catch(e) {
     showToast('删除失败: ' + e.message, 'error');
   }
@@ -473,7 +419,6 @@ const renderRosterPreview = (className = '') => {
   summary.textContent = `当前预览: ${className} (${rosterData.length} 人)`;
   
   tbody.innerHTML = '';
-  // Show max 100 for preview performance
   const displayData = rosterData.slice(0, 100);
   
   displayData.forEach((student, idx) => {
@@ -495,12 +440,6 @@ const renderRosterPreview = (className = '') => {
 
 // --- Session Management ---
 window.startSession = async () => {
-  if (!db) {
-    showToast('请先配置并初始化 Firebase', 'error');
-    switchTab('settings');
-    return;
-  }
-
   const sessionName = document.getElementById('sessionName').value.trim() || `签到 - ${new Date().toLocaleDateString()}`;
   const durationMin = parseInt(document.getElementById('sessionDuration').value) || 60;
   
@@ -513,21 +452,8 @@ window.startSession = async () => {
   rosterData = savedRosters[selectedClassId].students || [];
 
   try {
-    const sessionsRef = ref(db, `users/${currentUser.uid}/sessions`);
-    const newSessionRef = push(sessionsRef);
-    currentSessionId = newSessionRef.key;
-    
-    // Save roster to Firebase for validation
-    const rosterMap = {};
-    rosterData.forEach(s => { rosterMap[s.id] = s.name; });
-
-    await set(newSessionRef, {
-      name: sessionName,
-      startTime: serverTimestamp(),
-      endTime: Date.now() + durationMin * 60 * 1000,
-      active: true,
-      roster: rosterMap
-    });
+    const res = await SessionAPI.create(sessionName, durationMin, selectedClassId);
+    currentSessionId = res.id;
 
     // UI Updates
     document.getElementById('startSessionBtn').classList.add('hidden');
@@ -540,12 +466,11 @@ window.startSession = async () => {
     document.getElementById('qrPlaceholder').classList.add('hidden');
     document.getElementById('qrContainer').classList.remove('hidden');
 
-    checkinData = {}; // Clear local checkins
+    checkinData = {}; 
     updateStatsDisplay();
     startQrRefreshLoop();
-    listenToCheckins();
+    startCheckinPolling();
     
-    // Set auto-stop timer
     autoStopTimer = setTimeout(() => {
       window.stopSession(true);
     }, durationMin * 60 * 1000);
@@ -558,17 +483,15 @@ window.startSession = async () => {
 };
 
 window.stopSession = async (isAuto = false) => {
-  if (!currentSessionId || !db) return;
+  if (!currentSessionId) return;
 
   try {
     if (autoStopTimer) clearTimeout(autoStopTimer);
     
-    await update(ref(db, `users/${currentUser.uid}/sessions/${currentSessionId}`), {
-      active: false,
-      endTime: serverTimestamp()
-    });
+    await SessionAPI.stop(currentSessionId);
 
     clearInterval(qrRefreshInterval);
+    clearInterval(pollingInterval);
     currentSessionId = null;
 
     document.getElementById('startSessionBtn').classList.remove('hidden');
@@ -593,22 +516,15 @@ window.stopSession = async (isAuto = false) => {
 
 // --- QR Code Logic ---
 const generateNewToken = async () => {
-  if (!currentSessionId || !db) return;
+  if (!currentSessionId) return;
   
-  // Create a random token
-  currentToken = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-  const expiryTime = Date.now() + 90000; // 60s display + 30s grace period for slow networks
-
   try {
-    // Update active token in session
-    await update(ref(db, `users/${currentUser.uid}/sessions/${currentSessionId}`), {
-      activeToken: currentToken,
-      tokenExpiresAt: expiryTime
-    });
+    const res = await SessionAPI.refreshToken(currentSessionId);
+    currentToken = res.token;
 
     // Generate QR Code URL
-    const baseUrl = window.location.href.replace('admin.html', 'checkin.html');
-    const qrUrl = `${baseUrl}?u=${currentUser.uid}&s=${currentSessionId}&t=${currentToken}`;
+    const baseUrl = window.location.href.replace('admin.html', 'checkin.html').split('#')[0];
+    const qrUrl = `${baseUrl}?u=${currentUser.id}&s=${currentSessionId}&t=${currentToken}`;
 
     if (!qrCode) {
       qrCode = new QRCode(document.getElementById("qrcode"), {
@@ -632,7 +548,7 @@ const startQrRefreshLoop = () => {
   let countdown = 60;
   const countdownEl = document.getElementById('qrCountdown');
   
-  generateNewToken(); // Initial token
+  generateNewToken();
 
   qrRefreshInterval = setInterval(() => {
     countdown--;
@@ -645,18 +561,21 @@ const startQrRefreshLoop = () => {
   }, 1000);
 };
 
-// --- Real-time Feed & Stats ---
-const listenToCheckins = () => {
-  if (!currentSessionId || !db) return;
-
-  const checkinsRef = ref(db, `users/${currentUser.uid}/checkins/${currentSessionId}`);
-  onValue(checkinsRef, (snapshot) => {
-    if (snapshot.exists()) {
-      checkinData = snapshot.val();
+// --- Real-time Feed & Stats (Polling) ---
+const startCheckinPolling = () => {
+  if (pollingInterval) clearInterval(pollingInterval);
+  
+  pollingInterval = setInterval(async () => {
+    if (!currentSessionId) return;
+    try {
+      const res = await SessionAPI.getCheckins(currentSessionId);
+      checkinData = res.checkins || {};
       updateStatsDisplay();
       renderFeed();
+    } catch (err) {
+      console.error('Poll checkins failed', err);
     }
-  });
+  }, 3000);
 };
 
 const updateStatsDisplay = () => {
@@ -675,7 +594,6 @@ const updateStatsDisplay = () => {
 
 const renderFeed = () => {
   const feedContainer = document.getElementById('checkinFeed');
-  
   const entries = Object.values(checkinData).sort((a, b) => b.timestamp - a.timestamp);
   
   if (entries.length === 0) {
@@ -740,25 +658,20 @@ const renderAbsentList = () => {
 
 // --- Exports & History ---
 window.loadHistory = async () => {
-  if (!db) {
-    showToast('请先配置 Firebase', 'warn');
-    return;
-  }
-  
   const historyList = document.getElementById('historyList');
   historyList.innerHTML = '<div class="loading-spinner" style="margin: 20px auto;"></div>';
 
   try {
-    const snap = await get(ref(db, `users/${currentUser.uid}/sessions`));
-    if (!snap.exists()) {
-      historyList.innerHTML = '<div class="feed-empty">暂无历史记录</div>';
-      return;
-    }
-    
-    const sessions = snap.val();
+    const res = await SessionAPI.list();
+    const sessions = res.sessions || {};
     const sortedSessions = Object.keys(sessions)
       .map(k => ({id: k, ...sessions[k]}))
       .sort((a,b) => b.startTime - a.startTime);
+    
+    if (sortedSessions.length === 0) {
+      historyList.innerHTML = '<div class="feed-empty">暂无历史记录</div>';
+      return;
+    }
     
     historyList.innerHTML = '';
     
@@ -766,8 +679,8 @@ window.loadHistory = async () => {
       const dateStr = new Date(session.startTime).toLocaleString('zh-CN');
       const rosterCount = session.roster ? Object.keys(session.roster).length : 0;
       
-      const checkinSnap = await get(ref(db, `users/${currentUser.uid}/checkins/${session.id}`));
-      const checkins = checkinSnap.exists() ? Object.keys(checkinSnap.val()).length : 0;
+      const checkinRes = await SessionAPI.getCheckins(session.id);
+      const checkinsCount = Object.keys(checkinRes.checkins || {}).length;
       
       const div = document.createElement('div');
       div.className = 'feed-item';
@@ -783,7 +696,7 @@ window.loadHistory = async () => {
             </div>
           </div>
           <div style="text-align: right; margin-right: 15px;">
-            <div style="font-weight: bold; color: ${checkins >= rosterCount && rosterCount > 0 ? '#34d399' : 'white'}">${checkins} / ${rosterCount}</div>
+            <div style="font-weight: bold; color: ${checkinsCount >= rosterCount && rosterCount > 0 ? '#34d399' : 'white'}">${checkinsCount} / ${rosterCount}</div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">签到人数</div>
           </div>
         </div>
@@ -807,12 +720,12 @@ window.viewHistorySession = async (sessionId) => {
   headerText.innerHTML = '🚨 查询中...';
   
   try {
-    const sessionSnap = await get(ref(db, `users/${currentUser.uid}/sessions/${sessionId}`));
-    const checkinSnap = await get(ref(db, `users/${currentUser.uid}/checkins/${sessionId}`));
-    
-    if (!sessionSnap.exists()) return;
-    const session = sessionSnap.val();
-    const checkins = checkinSnap.exists() ? checkinSnap.val() : {};
+    const res = await SessionAPI.list();
+    const session = res.sessions[sessionId];
+    if (!session) return;
+
+    const checkinRes = await SessionAPI.getCheckins(sessionId);
+    const checkins = checkinRes.checkins || {};
     const roster = session.roster || {};
     
     headerText.innerHTML = `🚨 [${session.name}] 缺勤名单`;
@@ -855,12 +768,12 @@ window.viewHistorySession = async (sessionId) => {
 window.exportHistorySession = async (sessionId, sessionName) => {
   showToast('正在生成报表...', 'info');
   try {
-    const sessionSnap = await get(ref(db, `users/${currentUser.uid}/sessions/${sessionId}`));
-    const checkinSnap = await get(ref(db, `users/${currentUser.uid}/checkins/${sessionId}`));
-    
-    if (!sessionSnap.exists()) return;
-    const session = sessionSnap.val();
-    const checkins = checkinSnap.exists() ? checkinSnap.val() : {};
+    const res = await SessionAPI.list();
+    const session = res.sessions[sessionId];
+    if (!session) return;
+
+    const checkinRes = await SessionAPI.getCheckins(sessionId);
+    const checkins = checkinRes.checkins || {};
     const roster = session.roster || {};
     
     const wsData = [['学号', '姓名', '签到状态', '签到时间', '设备IP']];
@@ -898,53 +811,26 @@ window.deleteHistorySession = async (sessionId, sessionName) => {
   if (!confirm(`警告：确定要永久删除场次【${sessionName}】吗？删除后所有签到记录将不可恢复！`)) return;
   
   try {
-    await remove(ref(db, `users/${currentUser.uid}/sessions/${sessionId}`));
-    await remove(ref(db, `users/${currentUser.uid}/checkins/${sessionId}`));
+    await SessionAPI.delete(sessionId);
     showToast('删除成功', 'success');
-    window.loadHistory();
-  } catch(e) {
+    loadHistory(); // Reload history
+  } catch (e) {
     showToast('删除失败: ' + e.message, 'error');
   }
 };
 
-window.exportAbsentList = () => {
-  if (rosterData.length === 0) {
-    showToast('暂无名单数据', 'error');
-    return;
-  }
-
-  const absentStudents = rosterData.filter(s => !checkinData[s.id]);
-  
-  const wsData = [
-    ['学号', '姓名', '状态']
-  ];
-  
-  absentStudents.forEach(s => {
-    wsData.push([s.id, s.name, '未签到']);
-  });
-
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "缺勤名单");
-  
-  const dateStr = new Date().toLocaleDateString().replace(/\//g, '-');
-  XLSX.writeFile(wb, `缺勤名单_${dateStr}.xlsx`);
-};
-
+// Generic exports
 window.exportAllList = () => {
   if (rosterData.length === 0) {
-    showToast('暂无名单数据', 'error');
+    showToast('当前没有签到数据可导出', 'warn');
     return;
   }
   
-  const wsData = [
-    ['学号', '姓名', '签到状态', '签到时间', '设备IP']
-  ];
-  
+  const wsData = [['学号', '姓名', '签到状态', '签到时间', '设备IP']];
   rosterData.forEach(s => {
     const checkin = checkinData[s.id];
     if (checkin) {
-      const timeStr = new Date(checkin.timestamp).toLocaleString('zh-CN');
+      const timeStr = new Date(checkin.timestamp).toLocaleTimeString('zh-CN', {hour12: false});
       wsData.push([s.id, s.name, '已签到', timeStr, checkin.ip || '未知']);
     } else {
       wsData.push([s.id, s.name, '未签到', '-', '-']);
@@ -953,8 +839,26 @@ window.exportAllList = () => {
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "完整考勤记录");
+  XLSX.utils.book_append_sheet(wb, ws, "签到总表");
+  XLSX.writeFile(wb, `全部签到明细_${formatTime(new Date())}.xlsx`);
+};
+
+window.exportAbsentList = () => {
+  if (rosterData.length === 0) return;
+  const absentStudents = rosterData.filter(s => !checkinData[s.id]);
   
-  const dateStr = new Date().toLocaleDateString().replace(/\//g, '-');
-  XLSX.writeFile(wb, `完整考勤记录_${dateStr}.xlsx`);
+  if (absentStudents.length === 0) {
+    showToast('全员到齐，无需导出缺勤表', 'success');
+    return;
+  }
+  
+  const wsData = [['学号', '姓名', '状态']];
+  absentStudents.forEach(s => {
+    wsData.push([s.id, s.name, '缺勤']);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "缺勤名单");
+  XLSX.writeFile(wb, `缺勤人员表_${formatTime(new Date())}.xlsx`);
 };

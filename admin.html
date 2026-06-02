@@ -5,16 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>教师管理端 - 智能签到系统</title>
   <link rel="stylesheet" href="css/style.css">
-  <!-- DNS 预连接 -->
-  <link rel="dns-prefetch" href="https://smartsignin-c0878-default-rtdb.firebaseio.com">
-  <link rel="preconnect" href="https://smartsignin-c0878-default-rtdb.firebaseio.com" crossorigin>
+  <!-- DNS 预连接已移除 -->
   <link rel="dns-prefetch" href="https://cdn.sheetjs.com">
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <!-- QRCode.js -->
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-  <!-- Firebase -->
-  <script type="module" src="js/firebase-config.js"></script>
+  <!-- API Config -->
+  <script type="module" src="js/api-config.js"></script>
   <script type="module" src="js/admin.js"></script>
 </head>
 <body class="admin-page">
@@ -277,33 +275,15 @@
           </div>
 
           <div class="setting-group">
-            <label class="setting-label">数据迁移</label>
-            <p class="hint-text">如果您有升级多用户版本前创建的历史数据（名单、签到），请点击下方按钮将其绑定到当前账号。</p>
-            <button class="btn btn-outline" onclick="migrateLegacyData()">📥 一键绑定旧版历史数据</button>
-          </div>
-
-          <div class="setting-group">
-            <label class="setting-label">Firebase 配置</label>
-            <p class="hint-text">请填写您自己的 Firebase 项目配置（首次使用必须配置）</p>
+            <label class="setting-label">API 接口配置</label>
+            <p class="hint-text">请填写 Cloudflare Worker 后端 API 地址（首次使用必须配置）</p>
             <div class="form-group">
-              <label>API Key</label>
-              <input type="text" id="fbApiKey" placeholder="AIzaSy...">
+              <label>API 地址</label>
+              <input type="text" id="apiBaseUrl" placeholder="https://api.yourdomain.com">
             </div>
-            <div class="form-group">
-              <label>Auth Domain</label>
-              <input type="text" id="fbAuthDomain" placeholder="your-project.firebaseapp.com">
-            </div>
-            <div class="form-group">
-              <label>Database URL</label>
-              <input type="text" id="fbDatabaseUrl" placeholder="https://your-project-default-rtdb.firebaseio.com">
-            </div>
-            <div class="form-group">
-              <label>Project ID</label>
-              <input type="text" id="fbProjectId" placeholder="your-project-id">
-            </div>
-            <button class="btn btn-primary" onclick="saveFirebaseConfig()">保存配置</button>
-            <button class="btn btn-outline" onclick="testFirebaseConnection()">测试连接</button>
-            <div id="fbConfigStatus" class="status-msg hidden"></div>
+            <button class="btn btn-primary" onclick="saveApiConfig()">保存配置</button>
+            <button class="btn btn-outline" onclick="testApiConnection()">测试连接</button>
+            <div id="apiConfigStatus" class="status-msg hidden"></div>
           </div>
         </div>
 
@@ -313,8 +293,8 @@
             <div class="help-step">
               <span class="step-num">1</span>
               <div>
-                <strong>配置 Firebase</strong>
-                <p>在「系统设置」中填写 Firebase 配置信息，获取方式见 <a href="https://console.firebase.google.com" target="_blank">Firebase Console</a></p>
+                <strong>配置 API 地址</strong>
+                <p>在「系统设置」中填写部署好的 Cloudflare Worker API 地址</p>
               </div>
             </div>
             <div class="help-step">
